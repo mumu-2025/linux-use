@@ -71,6 +71,10 @@ def main(argv: list[str] | None = None) -> int:
     p_sm = sub.add_parser("smoke", help="Controlled smoke test with latency numbers.")
     p_sm.add_argument("--keep-window", action="store_true")
 
+    p_bench = sub.add_parser("bench", help="Apples-to-apples compare original / cache / locmap on the same scripted task.")
+    p_bench.add_argument("--runs", type=int, default=5, help="Runs per mode (default 5)")
+    p_bench.add_argument("--out-dir", type=Path, default=None)
+
     p_sv = sub.add_parser("serve", help="JSON-RPC server for other agents.")
     p_sv.add_argument("--stdio", action="store_true", help="Read JSON-RPC from stdin")
     p_sv.add_argument("--host", default="127.0.0.1")
@@ -88,6 +92,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "smoke":
         from .smoke import run_smoke
         return run_smoke(keep_window=args.keep_window)
+    if args.cmd == "bench":
+        from .bench import run_bench
+        payload = run_bench(runs=max(1, args.runs), out_dir=args.out_dir)
+        modes = payload["summary"]["modes"]
+        failed = sum(modes[m]["failed"] for m in modes)
+        return 0 if failed == 0 else 1
     if args.cmd == "serve":
         from .server import serve_stdio, serve_tcp
         if args.stdio:
