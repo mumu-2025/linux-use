@@ -805,3 +805,32 @@ def _summarize_events(pending: list[_Pending]) -> list[str]:
             samples.append(" ".join(bits))
     summary = [f"{k}×{v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:8]]
     return summary + ([("e.g. " + ", ".join(samples))] if samples else [])
+
+
+    def peek_menu_open(self, element_id: str) -> bool:
+        """Check expanded state or a showing child — no full tree walk."""
+        el = self.get_element(element_id)
+        if el and "expanded" in (el.states or []):
+            return True
+        obj = self.live_object(element_id)
+        if obj is None:
+            return False
+        try:
+            from gi.repository import Atspi
+            n = obj.get_child_count() or 0
+            for i in range(min(int(n), 8)):
+                ch = obj.get_child_at_index(i)
+                if ch is None:
+                    continue
+                try:
+                    sset = ch.get_state_set()
+                    showing = sset.contains(Atspi.StateType.SHOWING)
+                    if showing:
+                        ext = ch.get_extents(Atspi.CoordType.SCREEN)
+                        if ext.width > 1 and ext.height > 1 and ext.x > -10000:
+                            return True
+                except Exception:
+                    continue
+        except Exception:
+            return False
+        return False

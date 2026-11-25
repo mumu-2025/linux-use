@@ -87,6 +87,10 @@ class Agent:
                 mark = "*" if w.active else " "
                 wlines.append(f"  {mark} {w.wid} {w.width}x{w.height}+{w.x}+{w.y} {w.title}")
             text = "\n".join(wlines) + "\n" + text
+        try:
+            self.tools.note_snapshot(snap)
+        except Exception:
+            pass
         return text, snap
 
     def invoke(self, task: str) -> AgentResult:

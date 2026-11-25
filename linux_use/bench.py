@@ -1,4 +1,4 @@
-"""Apples-to-apples benchmark: same scripted Mousepad task under three modes.
+"""Apples-to-apples benchmark: same scripted Mousepad task under four modes.
 
 No LLM is involved. Modes:
 
@@ -8,6 +8,9 @@ No LLM is involved. Modes:
   last cached snapshot (no coordinate map).
 - locmap: cache plus classified location map; click cached coordinates after a
   cheap window-geometry check (fallback to incremental refresh if the check fails).
+- hybrid: default product policy. Per action, choose AT-SPI, cached tree, or
+  locmap; cheap targeted verify after each action (incremental retry once, full
+  rescan last). Logs the path taken at every step.
 """
 
 from __future__ import annotations
@@ -27,15 +30,15 @@ from .tree import TreeSnapshot, UIElement
 MARKER = "LINUX_USE_BENCH_OK_20261125"
 PAD = Path("/tmp/linux-use-bench-pad.txt")
 TITLE_HINT = "linux-use-bench-pad.txt"
-MODES = ("original", "cache", "locmap")
+MODES = ("original", "cache", "locmap", "hybrid")
 
 # 5 rounds, rotated so each mode appears equally in each position.
 ROTATIONS = [
-    ("original", "cache", "locmap"),
-    ("cache", "locmap", "original"),
-    ("locmap", "original", "cache"),
-    ("original", "locmap", "cache"),
-    ("cache", "original", "locmap"),
+    ("original", "cache", "locmap", "hybrid"),
+    ("cache", "locmap", "hybrid", "original"),
+    ("locmap", "hybrid", "original", "cache"),
+    ("hybrid", "original", "cache", "locmap"),
+    ("original", "locmap", "cache", "hybrid"),
 ]
 
 
@@ -158,7 +161,145 @@ def _locate(
     return el.cx, el.cy, el.id, ms, extra_walked, "tree"
 
 
+
+def _acc_hybrid(res, *, observe_ms, locate_ms, act_ms, walked):
+    data = res.data or {}
+    return (
+        observe_ms + float(data.get("observe_ms") or 0) + float(data.get("verify_ms") or 0),
+        locate_ms + float(data.get("locate_ms") or 0),
+        act_ms + float(data.get("act_ms") or res.act_ms or 0),
+        walked + int(data.get("walked") or 0),
+    )
+
+
+def _run_hybrid(index: int, a11y, desktop, inp) -> RunResult:
+    """Same Mousepad task, executed with the product HybridRouter."""
+    from .hybrid import HybridRouter
+
+    locmap = LocationMap()
+    router = HybridRouter(a11y, desktop, inp, locmap)
+    steps: list[dict] = []
+    observe_ms = locate_ms = act_ms = 0.0
+    walked = 0
+    file_ok = False
+    error = ""
+    text_id = None
+    file_id = None
+
+    def rec(name: str, **kw):
+        steps.append({"name": name, **kw})
+
+    try:
+        a11y.invalidate(f"bench-hybrid-{index}")
+        t0 = time.perf_counter()
+
+        snap, oms, w = router.observe(force=True, reason="observe_initial")
+        observe_ms += oms
+        walked += w
+        rec("observe_initial", observe_ms=round(oms, 2), walked=w, mode_refresh=snap.refresh_mode, path="full")
+
+        cres = router.click(role="text", expect="showing")
+        observe_ms, locate_ms, act_ms, walked = _acc_hybrid(
+            cres, observe_ms=observe_ms, locate_ms=locate_ms, act_ms=act_ms, walked=walked
+        )
+        text_id = (cres.data or {}).get("id")
+        rec(
+            "click_text", ok=cres.ok, path=(cres.data or {}).get("path"),
+            locate_ms=round(float((cres.data or {}).get("locate_ms") or 0), 2),
+            act_ms=round(float((cres.data or {}).get("act_ms") or cres.act_ms or 0), 2),
+            verify_ms=round(float((cres.data or {}).get("verify_ms") or 0), 2),
+            source=(cres.data or {}).get("path"), id=text_id, message=cres.message,
+        )
+        if not cres.ok:
+            error = f"click_text: {cres.message}"
+            total = (time.perf_counter() - t0) * 1000.0
+            return RunResult("hybrid", index, False, total, observe_ms, locate_ms, act_ms, walked, False, error, steps)
+
+        tres = router.type_text(MARKER, element_id=text_id, clear=True)
+        observe_ms, locate_ms, act_ms, walked = _acc_hybrid(
+            tres, observe_ms=observe_ms, locate_ms=locate_ms, act_ms=act_ms, walked=walked
+        )
+        rec(
+            "type_marker", ok=tres.ok, path=(tres.data or {}).get("path"),
+            act_ms=round(float((tres.data or {}).get("act_ms") or tres.act_ms or 0), 2),
+            verify_ms=round(float((tres.data or {}).get("verify_ms") or 0), 2),
+            via=(tres.data or {}).get("path"), message=tres.message,
+        )
+        if not tres.ok:
+            error = f"type_marker: {tres.message}"
+            total = (time.perf_counter() - t0) * 1000.0
+            return RunResult("hybrid", index, False, total, observe_ms, locate_ms, act_ms, walked, False, error, steps)
+
+        fres = router.click(name="File", role="menu", expect="menu-open")
+        observe_ms, locate_ms, act_ms, walked = _acc_hybrid(
+            fres, observe_ms=observe_ms, locate_ms=locate_ms, act_ms=act_ms, walked=walked
+        )
+        file_id = (fres.data or {}).get("id")
+        rec(
+            "click_file_menu", ok=fres.ok, path=(fres.data or {}).get("path"),
+            locate_ms=round(float((fres.data or {}).get("locate_ms") or 0), 2),
+            act_ms=round(float((fres.data or {}).get("act_ms") or fres.act_ms or 0), 2),
+            verify_ms=round(float((fres.data or {}).get("verify_ms") or 0), 2),
+            source=(fres.data or {}).get("path"), id=file_id, message=fres.message,
+        )
+        if not fres.ok:
+            error = f"click_file_menu: {fres.message}"
+            total = (time.perf_counter() - t0) * 1000.0
+            return RunResult("hybrid", index, False, total, observe_ms, locate_ms, act_ms, walked, False, error, steps)
+
+        eres = router.shortcut("Escape", expect="menu-closed", element_id=file_id)
+        observe_ms, locate_ms, act_ms, walked = _acc_hybrid(
+            eres, observe_ms=observe_ms, locate_ms=locate_ms, act_ms=act_ms, walked=walked
+        )
+        rec(
+            "escape_menu", ok=eres.ok, path=(eres.data or {}).get("path"),
+            act_ms=round(float((eres.data or {}).get("act_ms") or eres.act_ms or 0), 2),
+            verify_ms=round(float((eres.data or {}).get("verify_ms") or 0), 2),
+            message=eres.message,
+        )
+        if not eres.ok:
+            error = f"escape_menu: {eres.message}"
+
+        sres = router.shortcut("ctrl+s")
+        observe_ms, locate_ms, act_ms, walked = _acc_hybrid(
+            sres, observe_ms=observe_ms, locate_ms=locate_ms, act_ms=act_ms, walked=walked
+        )
+        rec(
+            "shortcut_ctrl_s", ok=sres.ok, path=(sres.data or {}).get("path"),
+            act_ms=round(float((sres.data or {}).get("act_ms") or sres.act_ms or 0), 2),
+            message=sres.message,
+        )
+
+        vok, vms, detail = router.verify(f"filecontains:{PAD}::{MARKER}")
+        observe_ms += vms
+        file_text = PAD.read_text(encoding="utf-8") if PAD.exists() else ""
+        file_ok = MARKER in file_text and vok
+        rec(
+            "verify_file", ok=file_ok, text=file_text[:80], verify_ms=round(vms, 2), detail=detail,
+            paths=[
+                {"step": lg.step, "path": lg.path, "ok": lg.ok, "detail": lg.detail,
+                 "ms": round(lg.ms, 2), "walked": lg.walked}
+                for lg in router.logs
+            ],
+        )
+        if not file_ok:
+            error = error or f"marker missing in {PAD}: {file_text!r}"
+
+        total = (time.perf_counter() - t0) * 1000.0
+        return RunResult(
+            "hybrid", index, bool(file_ok and not error), total,
+            observe_ms, locate_ms, act_ms, walked, file_ok, error, steps,
+        )
+    except Exception as exc:
+        return RunResult(
+            "hybrid", index, False, 0.0, observe_ms, locate_ms, act_ms, walked,
+            False, f"{type(exc).__name__}: {exc}", steps,
+        )
+
+
 def _run_once(mode: str, index: int, a11y, desktop, inp) -> RunResult:
+    if mode == "hybrid":
+        return _run_hybrid(index, a11y, desktop, inp)
     locmap = LocationMap() if mode == "locmap" else None
     steps: list[dict] = []
     observe_ms = locate_ms = act_ms = 0.0
@@ -298,7 +439,7 @@ def _speedup(base: float, other: float) -> float | None:
 
 
 def run_bench(runs: int = 5, out_dir: Path | None = None) -> dict:
-    """Run the same scripted task under all three modes, `runs` times each."""
+    """Run the same scripted task under all four modes, `runs` times each."""
     out_dir = Path(out_dir or SETTINGS.log_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     ensure_ready()
@@ -373,7 +514,14 @@ def run_bench(runs: int = 5, out_dir: Path | None = None) -> dict:
 
     orig_total = summary["modes"]["original"]["total_ms"].get("median")
     orig_ol = summary["modes"]["original"]["observe_locate_ms"].get("median")
-    for m in ("cache", "locmap"):
+    for m in MODES:
+        rs = by_mode[m]
+        n = len(rs)
+        summary["modes"][m]["success_rate"] = f"{sum(1 for r in rs if r.ok)}/{n}" if n else "0/0"
+        if m == "original":
+            summary["modes"][m]["speedup_vs_original_total"] = 1.0
+            summary["modes"][m]["speedup_vs_original_observe_locate"] = 1.0
+            continue
         med_t = summary["modes"][m]["total_ms"].get("median")
         med_ol = summary["modes"][m]["observe_locate_ms"].get("median")
         summary["modes"][m]["speedup_vs_original_total"] = _speedup(orig_total or 0, med_t or 0)
@@ -453,14 +601,15 @@ def format_markdown(payload: dict) -> str:
         lines.append(
             f"| {m} | {cell(md['total_ms'])} | {cell(md['observe_locate_ms'])} | "
             f"{cell(md['act_ms'])} | {cell(md['walked'], 'count')} | {sp_t} | {sp_o} | "
-            f"{md['ok']}/{s['runs_requested']} |"
+            f"{md.get('success_rate') or str(md['ok']) + '/' + str(s['runs_requested'])} |"
         )
     lines += [
         "",
         "English: same scripted Mousepad task, no LLM, 5 alternating runs per mode. "
         "original = full AT-SPI rescan before and after every step; cache = event-driven incremental tree; "
-        "locmap = cache plus classified coordinate map. Setup (launching Mousepad) is excluded from the timed total. "
-        "Every successful run verified the marker was saved to the temp file.",
+        "locmap = cache plus classified coordinate map; hybrid = default policy (AT-SPI, then cache or locmap "
+        "per action, cheap post-action verify). Setup (launching Mousepad) is excluded from the timed total. "
+        "Every successful run verified the marker was saved to the temp file. Success rate is shown per mode.",
         "",
     ]
     return "\n".join(lines) + "\n"

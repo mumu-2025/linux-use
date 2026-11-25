@@ -1,38 +1,23 @@
-"""macOS backend stub. Not implemented on this Linux box."""
+"""macOS backends (AX + CGEvent).
+
+UNTESTED on real macOS hardware. Prefer importing via
+`linux_use.platform.get_backends()`, which auto-detects the OS.
+
+Install optional deps with: pip install 'linux-use[macos]'
+The hosting process must be trusted under System Settings >
+Privacy & Security > Accessibility.
+"""
 
 from __future__ import annotations
 
-from .base import AccessibilityBackend, DesktopBackend, InputBackend
+from .macos_a11y import HARDWARE_TESTED, UNTESTED_NOTE, MacAccessibility
+from .macos_desktop import MacDesktop
+from .macos_input import MacInput
 
-
-class _Stub:
-    def _fail(self, *args, **kwargs):
-        raise NotImplementedError(
-            "macOS backend is a stub. Implement via the Accessibility (AX) API later."
-        )
-
-
-class MacAccessibility(_Stub, AccessibilityBackend):
-    ensure_ready = _Stub._fail
-    snapshot = _Stub._fail
-    get_element = _Stub._fail
-    invalidate = _Stub._fail
-
-
-class MacDesktop(_Stub, DesktopBackend):
-    list_windows = _Stub._fail
-    focus_window = _Stub._fail
-    launch_app = _Stub._fail
-    resize_window = _Stub._fail
-    close_window = _Stub._fail
-    screen_size = _Stub._fail
-
-
-class MacInput(_Stub, InputBackend):
-    click = _Stub._fail
-    move = _Stub._fail
-    drag = _Stub._fail
-    type_text = _Stub._fail
-    shortcut = _Stub._fail
-    scroll = _Stub._fail
-    mouse_location = _Stub._fail
+__all__ = [
+    "MacAccessibility",
+    "MacDesktop",
+    "MacInput",
+    "HARDWARE_TESTED",
+    "UNTESTED_NOTE",
+]

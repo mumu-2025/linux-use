@@ -1,0 +1,86 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "inspect",
+      "description": "Dump the current desktop accessibility tree (AT-SPI / UIA / AX) and timing metrics. Prefer this to a screenshot when you need element ids, roles, names, and bounds.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "force": {"type": "boolean", "description": "Force a full rescan instead of the incremental cache.", "default": false}
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "map",
+      "description": "Dump the classified element location map (name/role/region -> screen coordinates).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "refresh": {"type": "boolean", "description": "Refresh from a new snapshot first.", "default": false}
+        }
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "act",
+      "description": "Run one scripted desktop action without an LLM. Tools: click, type, shortcut, scroll, move, app, shell, wait, inspect, file, screenshot, done. Default policy is HYBRID.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tool": {"type": "string", "description": "Action name, e.g. click, type, shortcut."},
+          "id": {"type": "string", "description": "Cached element id (e12)."},
+          "name": {"type": "string"},
+          "role": {"type": "string"},
+          "region": {"type": "string"},
+          "x": {"type": "integer"},
+          "y": {"type": "integer"},
+          "text": {"type": "string"},
+          "keys": {"type": "string"},
+          "button": {"type": "string", "default": "left"},
+          "clicks": {"type": "integer", "default": 1},
+          "clear": {"type": "boolean"},
+          "press_enter": {"type": "boolean"},
+          "direction": {"type": "string"},
+          "amount": {"type": "integer"},
+          "command": {"type": "string"},
+          "title": {"type": "string"},
+          "action": {"type": "string"},
+          "path": {"type": "string"},
+          "content": {"type": "string"}
+        },
+        "required": ["tool"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "run",
+      "description": "Run a plain-English desktop task with an OpenAI-compatible LLM. Requires LINUX_USE_API_KEY or OPENAI_API_KEY.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {"type": "string"},
+          "max_steps": {"type": "integer", "default": 25},
+          "model": {"type": "string"},
+          "base_url": {"type": "string"}
+        },
+        "required": ["task"]
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "windows",
+      "description": "List top-level windows (id, title, geometry, pid, active).",
+      "parameters": {"type": "object", "properties": {}}
+    }
+  }
+]

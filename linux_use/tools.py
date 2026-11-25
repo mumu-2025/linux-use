@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .config import SAFE_FILE_ROOTS, SETTINGS
+from .hybrid import HybridRouter
 from .locmap import LocationMap
 from .platform.base import ActionResult
 from .screenshot import take_screenshot
@@ -41,14 +42,26 @@ class ToolSpec:
 
 
 class Toolbelt:
-    def __init__(self, a11y, desktop, input_backend, experimental: bool = False, locmap: LocationMap | None = None):
+    def __init__(self, a11y, desktop, input_backend, experimental: bool = False,
+                 locmap: LocationMap | None = None, policy: str | None = None):
         self.a11y = a11y
         self.desktop = desktop
         self.input = input_backend
         self.experimental = experimental
         self.last_observe_ms = 0.0
         self.locmap = locmap if locmap is not None else LocationMap()
+        self.policy = (policy or getattr(SETTINGS, "policy", None) or "hybrid").strip().lower()
+        self.router = HybridRouter(a11y, desktop, input_backend, self.locmap)
         self._tools = self._build()
+
+    def note_snapshot(self, snap) -> None:
+        """Keep the hybrid router and location map in sync after an inspect/observe."""
+        self.router.last_snap = snap
+        self.last_observe_ms = getattr(snap, "observe_ms", 0.0) or 0.0
+        try:
+            self.locmap.ingest(snap, self.desktop.list_windows())
+        except Exception:
+            pass
 
     def _build(self) -> dict[str, ToolSpec]:
         props = {
@@ -202,6 +215,14 @@ class Toolbelt:
               button: str = "left", clicks: int = 1,
               name: str | None = None, role: str | None = None, region: str | None = None) -> ActionResult:
         t0 = time.perf_counter()
+        if self.policy == "hybrid" and (id or name or role) and x is None:
+            res = self.router.click(
+                name=name, role=role, element_id=id, region=region,
+                button=button, clicks=clicks,
+            )
+            logs = self.router.consume_logs()
+            res.data = {**(res.data or {}), "policy": "hybrid", "paths": logs}
+            return res
         if (name or role) and not id and x is None:
             resolved = self.locmap.resolve(
                 name=name, role=role, region=region,
@@ -257,6 +278,13 @@ class Toolbelt:
     def type_text(self, text: str, id: str | None = None, clear: bool = False,
                   press_enter: bool = False) -> ActionResult:
         t0 = time.perf_counter()
+        if self.policy == "hybrid":
+            res = self.router.type_text(
+                text, element_id=id, clear=clear, press_enter=press_enter,
+            )
+            logs = self.router.consume_logs()
+            res.data = {**(res.data or {}), "policy": "hybrid", "paths": logs}
+            return res
         if id:
             el = self.a11y.get_element(id)
             if el is None:
@@ -288,7 +316,15 @@ class Toolbelt:
         if x is None or y is None:
             mx, my = self.input.mouse_location()
             x, y = mx, my
-        return self.input.scroll(int(x), int(y), direction=direction, amount=amount)
+        res = self.input.scroll(int(x), int(y), direction=direction, amount=amount)
+        # Scroll invalidates cached coordinates in that region.
+        try:
+            apps = [el.app] if id and (el := self.a11y.get_element(id)) else []
+            self.locmap.note_events(["scroll"], ids=[id] if id else None, apps=apps)
+            self.router.last_snap = None  # require refresh / locmap re-check
+        except Exception:
+            pass
+        return res
 
     def move(self, x: int | None = None, y: int | None = None, id: str | None = None,
              from_x: int | None = None, from_y: int | None = None, from_id: str | None = None,
@@ -370,12 +406,10 @@ class Toolbelt:
 
     def inspect(self, force: bool = False) -> ActionResult:
         snap = self.a11y.snapshot(force=bool(force))
-        self.last_observe_ms = snap.observe_ms
-        try:
-            self.locmap.ingest(snap, self.desktop.list_windows())
-        except Exception:
-            pass
-        return ActionResult(True, snap.observation(), {"observe_ms": snap.observe_ms, "mode": snap.refresh_mode})
+        self.note_snapshot(snap)
+        return ActionResult(True, snap.observation(), {
+            "observe_ms": snap.observe_ms, "mode": snap.refresh_mode, "policy": self.policy,
+        })
 
     def done(self, answer: str) -> ActionResult:
         return ActionResult(True, answer, {"done": True, "answer": answer})

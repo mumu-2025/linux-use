@@ -1,39 +1,21 @@
-"""Windows backend stub. Not implemented on this Linux box."""
+"""Windows backends (UI Automation + SendInput).
+
+UNTESTED on real Windows hardware. Prefer importing via
+`linux_use.platform.get_backends()`, which auto-detects the OS.
+
+Install optional deps with: pip install 'linux-use[windows]'
+"""
 
 from __future__ import annotations
 
-from typing import Any, Iterable
-from .base import AccessibilityBackend, ActionResult, DesktopBackend, InputBackend, WindowInfo
+from .windows_a11y import HARDWARE_TESTED, UNTESTED_NOTE, WindowsAccessibility
+from .windows_desktop import WindowsDesktop
+from .windows_input import WindowsInput
 
-
-class _Stub:
-    def _fail(self, *args, **kwargs):
-        raise NotImplementedError(
-            "Windows backend is a stub. Implement via UI Automation (UIA) later."
-        )
-
-
-class WindowsAccessibility(_Stub, AccessibilityBackend):
-    ensure_ready = _Stub._fail
-    snapshot = _Stub._fail
-    get_element = _Stub._fail
-    invalidate = _Stub._fail
-
-
-class WindowsDesktop(_Stub, DesktopBackend):
-    list_windows = _Stub._fail
-    focus_window = _Stub._fail
-    launch_app = _Stub._fail
-    resize_window = _Stub._fail
-    close_window = _Stub._fail
-    screen_size = _Stub._fail
-
-
-class WindowsInput(_Stub, InputBackend):
-    click = _Stub._fail
-    move = _Stub._fail
-    drag = _Stub._fail
-    type_text = _Stub._fail
-    shortcut = _Stub._fail
-    scroll = _Stub._fail
-    mouse_location = _Stub._fail
+__all__ = [
+    "WindowsAccessibility",
+    "WindowsDesktop",
+    "WindowsInput",
+    "HARDWARE_TESTED",
+    "UNTESTED_NOTE",
+]

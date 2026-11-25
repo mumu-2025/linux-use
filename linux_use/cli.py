@@ -14,7 +14,7 @@ from .config import SETTINGS
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="linux-use",
-        description="Linux desktop GUI agent (AT-SPI accessibility tree).",
+        description="Desktop GUI agent (AT-SPI / UI Automation / AX). Default policy: hybrid.",
     )
     parser.add_argument("--version", action="version", version=f"linux-use {__version__}")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -71,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     p_sm = sub.add_parser("smoke", help="Controlled smoke test with latency numbers.")
     p_sm.add_argument("--keep-window", action="store_true")
 
-    p_bench = sub.add_parser("bench", help="Apples-to-apples compare original / cache / locmap on the same scripted task.")
+    p_bench = sub.add_parser("bench", help="Apples-to-apples compare original / cache / locmap / hybrid on the same scripted task.")
     p_bench.add_argument("--runs", type=int, default=5, help="Runs per mode (default 5)")
     p_bench.add_argument("--out-dir", type=Path, default=None)
 
@@ -79,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     p_sv.add_argument("--stdio", action="store_true", help="Read JSON-RPC from stdin")
     p_sv.add_argument("--host", default="127.0.0.1")
     p_sv.add_argument("--port", type=int, default=8765)
+
+    p_mcp = sub.add_parser("mcp", help="MCP stdio server (inspect/map/act/run/windows) for Claude, Cursor, and other MCP clients.")
 
     args = parser.parse_args(argv)
     if args.cmd == "inspect":
@@ -103,6 +105,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.stdio:
             return serve_stdio()
         return serve_tcp(args.host, args.port)
+    if args.cmd == "mcp":
+        from .mcp_server import serve_mcp
+        return serve_mcp()
     parser.print_help()
     return 2
 

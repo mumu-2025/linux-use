@@ -25,15 +25,16 @@ def _ctx():
 def inspect_desktop(force: bool = False) -> TreeSnapshot:
     a11y, desktop, _, tools = _ctx()
     snap = a11y.snapshot(force=force)
-    try:
-        tools.locmap.ingest(snap, desktop.list_windows())
-    except Exception:
-        pass
+    tools.note_snapshot(snap)
     return snap
 
 
 def act(tool: str, **kwargs) -> Any:
-    """Run one scripted tool without an LLM, e.g. act('type', text='hello', id='e12')."""
+    """Run one scripted tool without an LLM, e.g. act('type', text='hello', id='e12').
+
+    Default policy is HYBRID (LINUX_USE_POLICY): AT-SPI first, then cache or locmap
+    per action, with a cheap post-action verify.
+    """
     *_, tools = _ctx()
     return tools.call(tool, kwargs)
 

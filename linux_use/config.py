@@ -61,6 +61,10 @@ class Settings:
     log_dir: Path = field(
         default_factory=lambda: Path(env("LINUX_USE_LOG_DIR") or "smoke-logs")
     )
+    # Default action policy: hybrid | cache | locmap | original
+    policy: str = field(
+        default_factory=lambda: (env("LINUX_USE_POLICY") or "hybrid").strip().lower()
+    )
 
 
 SETTINGS = Settings()

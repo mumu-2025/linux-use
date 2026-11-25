@@ -1,7 +1,7 @@
 [project]
 name = "linux-use"
 version = "0.1.0"
-description = "Fast accessibility-tree (AT-SPI) desktop agent for Linux, with event-driven incremental UI cache; CLI / Python / JSON-RPC for any agent."
+description = "Accessibility-tree desktop agent (Linux AT-SPI, Windows UIA, macOS AX) with a hybrid cache/locmap policy; CLI, Python, JSON-RPC, and MCP for any agent."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -9,10 +9,18 @@ authors = [{ name = "linux-use authors" }]
 dependencies = ["requests>=2.28"]
 
 [project.optional-dependencies]
+linux = []
+windows = ["comtypes>=1.2"]
+macos = [
+    "pyobjc-framework-ApplicationServices>=10.0",
+    "pyobjc-framework-Cocoa>=10.0",
+    "pyobjc-framework-Quartz>=10.0",
+]
 dev = ["pytest>=7.0"]
 
 [project.scripts]
 linux-use = "linux_use.cli:main"
+desktop-use = "linux_use.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/mumu-2025/linux-use"
@@ -24,3 +32,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["linux_use*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

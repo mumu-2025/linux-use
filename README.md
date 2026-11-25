@@ -1,8 +1,16 @@
 # linux-use
 
-在 Linux 桌面上用 **AT-SPI2 无障碍树**（而不是视觉模型）操作 GUI 的智能体。逻辑受到 [Jeomon/Windows-Use](https://github.com/Jeomon/Windows-Use) 的启发（读无障碍树 → LLM 决定点击/输入/滚动 → 循环直到完成），但代码是单独实现的，**没有克隆或 pip 安装那个仓库**。
+跨平台桌面 GUI 智能体：用系统无障碍树（而不是视觉模型）读界面，默认 **HYBRID** 策略按动作在缓存树和分类坐标图之间自动选择，并优先走无障碍原语（`do_action` / `set_text` / `grab_focus`）。逻辑受到 [Jeomon/Windows-Use](https://github.com/Jeomon/Windows-Use) 的启发（读无障碍树 → LLM 决定点击/输入/滚动 → 循环直到完成），但代码是单独实现的，**没有克隆或 pip 安装那个仓库**。
 
-先满足本机自用，同时提供干净的 CLI / Python API / JSON-RPC，方便其他 Agent 调用，并预留了 Windows / macOS 后端接口（目前是 stubs）。
+仓库名仍是 [`mumu-2025/linux-use`](https://github.com/mumu-2025/linux-use)（没有另开仓库）。同一套接口自动检测操作系统：
+
+| 系统 | 无障碍 / 输入 | 本仓库验证状态 |
+|--|--|--|
+| **Linux**（X11） | AT-SPI2 + xdotool/wmctrl | **已在本机实测**（inspect / act / smoke / 四模式基准） |
+| **Windows** | UI Automation（comtypes）+ SendInput | **已实现完整代码路径，未在真实 Windows 硬件上跑过**；有 mock 单元测试。不要声称「已经能用」。`pip install 'linux-use[windows]'` |
+| **macOS** | Accessibility AX（pyobjc）+ CGEvent | **已实现完整代码路径，未在真实 Mac 硬件上跑过**；有 mock 单元测试。需要把宿主进程加入「辅助功能」权限。不要声称「已经能用」。`pip install 'linux-use[macos]'` |
+
+默认入口仍是 `linux-use`；`desktop-use` 是同一个 CLI 的别名。对外还有 CLI、Python API、JSON-RPC，以及 `linux-use mcp`（MCP stdio，给 Claude / Cursor 等）。
 
 ---
 
@@ -29,6 +37,15 @@ linux-use --version
 
 会话里需要有 `DISPLAY` 和 D-Bus session。程序会自动启用 AT-SPI 总线，并用 `GTK_A11Y=atspi`、`GTK_MODULES=atk-bridge` 拉起被控应用。在 X11 上用 xdotool/wmctrl 做输入与窗口管理。
 
+Windows / macOS **尚未在真实机器上验证**。若要在那些系统上尝试（自担风险）：
+
+```bash
+pip install -e '.[windows]'   # comtypes；输入走 SendInput，不依赖 pywinauto
+pip install -e '.[macos]'     # pyobjc ApplicationServices / Cocoa / Quartz
+```
+
+默认策略是 `HYBRID`（可用环境变量 `LINUX_USE_POLICY=hybrid|cache|locmap|original` 覆盖）。
+
 ---
 
 ## 用法
@@ -52,6 +69,12 @@ linux-use map --json
 # 受控冒烟测试（会打开/关闭一个临时 Mousepad，并测量时延）
 linux-use smoke
 
+# 同一脚本任务对比 original / cache / locmap / hybrid
+linux-use bench --runs 5
+
+# MCP stdio（Claude / Cursor 等）。细节见 docs/INTEGRATIONS.md
+linux-use mcp
+
 # 有 LLM 时：用自然语言跑任务
 export LINUX_USE_API_KEY="your-key"      # 或 OPENAI_API_KEY；不要把密钥写进代码或仓库
 export LINUX_USE_BASE_URL=https://api.openai.com/v1   # 可选，任意 OpenAI 兼容端点
@@ -59,7 +82,7 @@ export LINUX_USE_MODEL=gpt-4o-mini
 linux-use run "Open Mousepad and type hello"
 ```
 
-等价入口：`python -m linux_use ...`
+等价入口：`python -m linux_use ...`，以及别名 `desktop-use`。
 
 ### Python API
 
@@ -84,6 +107,8 @@ result = agent.invoke("在文本编辑器里写一行 hello")
 print(result.answer, result.observe_ms_total, result.act_ms_total)
 ```
 
+点击 / 键入默认走 **HYBRID**：有无障碍原语就用原语；缓存树仍可信时在内存里定位（比坐标图的窗口几何校验更快）；静态控件且没有新鲜快照时才走 locmap；动作后做廉价校验，失败则增量刷新并重试一次，全量重扫是最后手段。每一步会记录走了哪条路径（`res.data["path"]`）。
+
 ### JSON-RPC（给其他 Agent）
 
 ```bash
@@ -92,7 +117,7 @@ linux-use serve --stdio                 # 每行一个 JSON-RPC 2.0 请求
 linux-use serve --host 127.0.0.1 --port 8765
 ```
 
-方法：`inspect`、`act`、`map`、`windows`、`run`、`ping`。
+方法：`inspect`、`act`、`map`、`windows`、`run`、`ping`。MCP 模式见下方与 `docs/INTEGRATIONS.md`。
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"inspect","params":{"force":false}}
@@ -142,6 +167,25 @@ linux-use serve --host 127.0.0.1 --port 8765
 
 定位阶段大约快 **10.9 倍**（57.6 ms → 5.3 ms；查找 0.01 ms + 校验 5.24 ms）。整段意图到点击大约快 1.5 倍，剩余时间主要花在 xdotool 点击本身（约 104–106 ms）。建表只要 0.12 ms（8 个可见交互条目）。
 
+### 四种模式对照（同一脚本，无 LLM，默认策略据此选定）
+
+日期：2026-11-26 00:00（Asia/Shanghai）。命令：`linux-use bench --runs 5`。20 次全部成功（每种模式 5/5），每次都把标记 `LINUX_USE_BENCH_OK_20261125` 写进了临时文件。启动 Mousepad 的等待不计入任务时延。任务：观察并点击文本区 → 写入标记 → 点 File 菜单 → Escape → `ctrl+s` → 核对文件。
+
+| 模式 | 任务总时延 median (min–max) ms | 观察+定位 median (min–max) ms | 动作 median (min–max) ms | 走过节点 | 相对 original 总时延 | 相对 original 观察+定位 | 成功率 |
+|--|--|--|--|--|--|--|--|
+| original | 758.9 (750.7–15277.0) | 473.2 (464.5–14990.8) | 263.5 (261.1–266.0) | 992 | 1.00× | 1.00× | 5/5 |
+| cache | 337.2 (320.6–360.2) | 62.5 (53.1–64.8) | 261.9 (256.3–279.4) | 94 (94–95) | 2.25× | 7.57× | 5/5 |
+| locmap | 390.7 (379.7–401.3) | 73.4 (68.8–78.5) | 259.4 (257.2–263.8) | 94 (94–95) | 1.94× | 6.45× | 5/5 |
+| **hybrid（默认）** | **145.2 (132.9–149.6)** | 81.4 (76.1–89.6) | **53.4 (49.5–57.8)** | 90 | **5.23×** | 5.82× | 5/5 |
+
+说明：
+
+- original 有一次观察阶段碰到约 15 s 的 AT-SPI 停顿（max 15277 ms）；其余 4 次在 750.7–790.8 ms。公平对比请看 **median**。
+- cache / locmap 的动作时间仍约 260 ms，主要是 xdotool 点击。hybrid 在本任务里对文本框走 `grab_focus`、对 File 菜单走 AT-SPI `do_action`、对正文走 `set_text`（日志路径：`cache` / `atspi`），动作 median 降到 53.4 ms，所以端到端约快 **5.23×**。
+- 本任务在初次观察后缓存树一直可信，hybrid 因此走 cache 而不是 locmap（内存查找约 0.02 ms，比窗口几何校验的 5–12 ms 更便宜）。locmap 会在「没有新鲜快照、目标是静态控件、几何未变」时被选中。
+- hybrid 的观察+定位略高于 cache（81 vs 62 ms），是因为动作后有廉价校验（File 菜单约 27 ms）。动作节省远大于这笔开销。
+- 完整路径日志和更细的注释见 `docs/SMOKE.md`。
+
 ---
 
 ## 架构
@@ -151,16 +195,18 @@ linux_use/
   a11y.py              启动并启用 AT-SPI 总线
   tree.py              快照、delta、给 LLM 的紧凑文本
   locmap.py            分类元素坐标图（name/role/region -> 屏幕坐标）
+  hybrid.py            默认 HYBRID 策略（按动作在 cache / locmap / AT-SPI·UIA·AX 之间选择）
   agent.py             观察 → 工具调用 → 再观察
   tools.py             click/type/scroll/move/shortcut/app/shell/file/wait/done
   llm.py               OpenAI 兼容 Chat Completions（密钥只来自环境变量）
   cli.py / server.py   命令行和 JSON-RPC
+  mcp_server.py        MCP stdio（inspect / map / act / run / windows）
+  bench.py             四模式对照基准
   platform/
     base.py            Accessibility / Desktop / Input 接口
-    linux_a11y.py      AT-SPI 增量缓存（速度关键路径）
-    linux_desktop.py   wmctrl / 启动应用
-    linux_input.py     xdotool（本机是 X11）
-    windows.py / macos.py   仅 stubs，供以后接 UIA / AX
+    linux_*.py         AT-SPI + wmctrl + xdotool（已在本机实测）
+    windows_*.py       UIA + SendInput（已实现，未在真实 Windows 上验证）
+    macos_*.py         AX + CGEvent（已实现，未在真实 macOS 上验证）
 ```
 
 ---
@@ -169,18 +215,19 @@ linux_use/
 
 | | Windows-Use | linux-use（本包） |
 |--|--|--|
-| 无障碍 API | Windows UI Automation | Linux AT-SPI2 |
-| 输入 | UIA + 系统输入 | 优先 AT-SPI action/text，其次 xdotool（X11） |
+| 无障碍 API | Windows UI Automation | Linux AT-SPI2（已测）；Windows UIA / macOS AX（已实现，未在真实硬件验证） |
+| 输入 | UIA + 系统输入 | 优先无障碍原语，其次 Linux xdotool / Windows SendInput / macOS CGEvent |
 | 视觉模型 | 可选 | 有截图工具，但不是主路径 |
 | 浏览器树 | 可从浏览器无障碍树抓取 | Chrome 需带 `--force-renderer-accessibility` 启动才较完整，尚未做专用 scrape |
 | 虚拟桌面 | 有 Windows VDM | 未做（可后接 wmctrl / XFCE 工作区） |
 | 语音 STT/TTS | 有 | 无 |
 | 多供应商 LLM | 很多封装 | 一个 OpenAI 兼容客户端（改 `BASE_URL` 即可接其他家） |
-| 平台 | 仅 Windows | Linux 已实现；Win/mac 仅接口 stubs |
+| 平台 | 仅 Windows | Linux 已实测；Win/mac 有完整后端代码 + mock 测试，**未在真实硬件上跑过，不声称可用** |
 
 其它限制：
 
 - 本机验证环境是 **X11 + XFCE/xfwm4**。Wayland 需要另接 `ydotool`/`wtype`，目前未做。
+- Windows / macOS 后端不要当作已经交付的功能：代码是完整路径（不是空 stubs），只在 Linux 上用 mock 测过。
 - 没有导出无障碍树的程序（部分 Electron、游戏、纯自绘界面）只能靠坐标，效果会差。
 - 在 AT-SPI 启动之前就已经打开的应用，可能不会出现在树上，需要重启该应用。
 - `shell` / `file` 有基本限制（危险命令拒绝；文件默认只允许家目录、`/tmp`、当前目录，以及可选的 `LINUX_USE_FILE_ROOTS`）。这不是沙箱，请勿在不可信任务上放开。
@@ -198,6 +245,7 @@ linux_use/
 | `DISPLAY` | X11 显示，未设置时回退到 `:0` |
 | `LINUX_USE_LOG_DIR` | 冒烟/截图日志目录，默认 `smoke-logs` |
 | `LINUX_USE_FILE_ROOTS` | 额外允许 `file` 工具访问的目录，用 `os.pathsep` 分隔 |
+| `LINUX_USE_POLICY` | 动作策略：`hybrid`（默认）/ `cache` / `locmap` / `original` |
 
 ---
 
@@ -209,8 +257,8 @@ MIT。仓库：https://github.com/mumu-2025/linux-use
 
 ## English summary
 
-**linux-use** is a Linux desktop GUI agent. It reads the screen through **AT-SPI2**, not a vision model. An optional OpenAI-compatible LLM then chooses click / type / scroll / shortcut / shell actions in a short loop. If no API key is set, `inspect`, `act`, and `smoke` still work.
+**linux-use** is a desktop GUI agent (repo name kept). It reads the screen through the OS accessibility tree, not a vision model. The default **HYBRID** policy picks AT-SPI/UIA/AX primitives, a cached tree, or a classified coordinate map per action, then does a cheap post-action verify. An optional OpenAI-compatible LLM chooses click / type / scroll / shortcut / shell in a short loop. If no API key is set, `inspect`, `act`, `smoke`, `bench`, and `mcp` still work.
 
-The tree is **cached and event-invalidated**: full walks happen only on the first snapshot or after structural AT-SPI events. Text/bounds/focus changes refresh the focused subtree; if nothing changed, a cheap O(apps) check returns the cached tree. Tools act on stable element ids and cached bounding boxes so a click does not rescan the UI.
+**Tested vs untested:** Linux (X11 + AT-SPI) is hardware-tested on this project’s reference box. Windows (UI Automation + SendInput) and macOS (AX + CGEvent) are real implementations with mock unit tests, but they have **not** been run on real Windows or Mac hardware — do not claim they work. Install optional extras with `pip install 'linux-use[windows]'` or `pip install 'linux-use[macos]'`.
 
-The reference environment used for the smoke numbers above is X11 (Xvfb + xfwm4). Wayland input, a dedicated browser scraper, and real Windows/macOS backends are not implemented yet (stubs only). This package is a separate implementation inspired by the Windows-Use architecture; it does not vendor or install that repository.
+The tree is **cached and event-invalidated**. Integrations: CLI (`linux-use` / alias `desktop-use`), Python API, JSON-RPC (`linux-use serve`), and MCP stdio (`linux-use mcp`). See `docs/INTEGRATIONS.md`. This package is a separate implementation inspired by the Windows-Use architecture; it does not vendor or install that repository.

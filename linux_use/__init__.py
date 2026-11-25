@@ -1,4 +1,4 @@
-"""linux-use: Linux desktop GUI agent driven by AT-SPI."""
+"""linux-use: desktop GUI agent (Linux AT-SPI, Windows UIA, macOS AX). Default policy: hybrid."""
 
 from .agent import Agent, AgentResult
 from .llm import OpenAICompatLLM

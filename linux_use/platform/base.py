@@ -1,4 +1,4 @@
-"""OS-agnostic interfaces for later Windows/macOS backends."""
+"""OS-agnostic interfaces for Linux (AT-SPI), Windows (UIA), and macOS (AX)."""
 
 from __future__ import annotations
 
@@ -42,6 +42,24 @@ class AccessibilityBackend(ABC):
 
     @abstractmethod
     def invalidate(self, reason: str = "manual") -> None: ...
+
+    # Optional primitives used by the hybrid policy. Backends should override.
+    def grab_focus(self, element_id: str) -> bool:
+        return False
+
+    def do_action(self, element_id: str, action: str | None = None) -> bool:
+        return False
+
+    def set_text(self, element_id: str, text: str) -> bool:
+        return False
+
+    def live_object(self, element_id: str):
+        return None
+
+    def peek_menu_open(self, element_id: str) -> bool:
+        """Cheap check that a menu/button's popup is showing. No full tree walk."""
+        el = self.get_element(element_id)
+        return bool(el and "expanded" in (el.states or []))
 
 
 class DesktopBackend(ABC):
