@@ -1,0 +1,23 @@
+observe_ms=1.0 mode=incremental cache_hit=False generation=4 nodes=90 walked=1
+active_app=mousepad
+focused=[e75] text '' (641,381,638,447)
+events: object:bounds-changed×5; object:property-change:accessible-name×2; object:children-changed:add×2; object:text-changed:insert×1; e.g. object:property-change:accessible-name mousepad frame, object:property-change:accessible-name mousepad button, object:children-changed:add mousepad menu, object:children-changed:add mousepad menu item, object:text-changed:insert mousepad text, object:bounds-changed mousepad text
+delta added=0 removed=0 updated=1
+  * [e75] text ''->'LINUX_USE_SMOKE_OK_20261125'
+[e1] application "mousepad"
+  [e2] frame "/tmp/linux-use-smoke-pad.txt - Mousepad" (635,322,650,514) active
+    [e3] filler (640,351,640,480)
+      [e4] filler (640,351,640,27)
+        [e5] menu bar (640,351,640,27)
+          [e6] menu "File" (640,351,37,27) actions=click
+          [e26] menu "Edit" (677,351,39,27) actions=click
+          [e46] menu "Search" (716,351,57,27) actions=click
+          [e80] menu "View" (773,351,44,27) actions=click
+          [e55] menu "Document" (817,351,81,27) actions=click
+          [e68] menu "Help" (898,351,45,27) actions=click
+      [e71] filler
+      [e72] page tab list (640,380,640,449)
+        [e73] page tab selected
+          [e74] scroll pane (640,380,640,449)
+            [e75] text (641,381,638,447) editable focused text='LINUX_USE_SMOKE_OK_20261125'
+      [e78] status bar

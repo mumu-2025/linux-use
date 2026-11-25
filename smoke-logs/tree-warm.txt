@@ -1,0 +1,22 @@
+observe_ms=5.6 mode=cache cache_hit=True generation=3 nodes=90 walked=0
+active_app=mousepad
+focused=[e75] text '' (641,381,638,447)
+delta added=0 removed=0 updated=0
+  no AT-SPI events; cheap check unchanged
+[e1] application "mousepad"
+  [e2] frame "/tmp/linux-use-smoke-pad.txt - Mousepad" (635,322,650,514) active
+    [e3] filler (640,351,640,480)
+      [e4] filler (640,351,640,27)
+        [e5] menu bar (640,351,640,27)
+          [e6] menu "File" (640,351,37,27) actions=click
+          [e26] menu "Edit" (677,351,39,27) actions=click
+          [e46] menu "Search" (716,351,57,27) actions=click
+          [e80] menu "View" (773,351,44,27) actions=click
+          [e55] menu "Document" (817,351,81,27) actions=click
+          [e68] menu "Help" (898,351,45,27) actions=click
+      [e71] filler
+      [e72] page tab list (640,380,640,449)
+        [e73] page tab selected
+          [e74] scroll pane (640,380,640,449)
+            [e75] text (641,381,638,447) editable focused
+      [e78] status bar

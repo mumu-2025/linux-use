@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.env.*
+smoke-logs/*.png
+smoke-logs/*.json
+*.log
+.linux-use/
+venv/
+# local venvs / caches / secrets
+.python-version
+.DS_Store
