@@ -58,3 +58,27 @@ linux-use smoke
 ## English
 
 Controlled Mousepad smoke test on a Linux cloud desktop (X11 :4). Cold full observe 39.2 ms (90 nodes), cache hit 5.6 ms, incremental observe after typing 1.0 ms (1 node). AT-SPI set_text 3.9 ms. File confirmed marker `LINUX_USE_SMOKE_OK_20261125`. Desktop left tidy. Text logs under `smoke-logs/`; PNG screenshots are generated locally and not stored in the repository.
+
+## 分类坐标图基准（第二次测量）
+
+日期：2026-11-25，约 23:35（Asia/Shanghai）  
+目标：点击 Mousepad 菜单栏上的 **File**。对比「每次先强制全量扫树再点」和「用分类坐标图的缓存中心点直接点」。
+
+| 路径 | 意图到点击完成 | 定位（不含 xdotool） | 点击本身 | walked | 来源 |
+|--|--|--|--|--|--|
+| 无坐标图 + 强制全量扫描 | 163.18 ms | 57.57 ms（其中观察 53.47 ms） | 105.61 ms | 90 | full scan |
+| 分类坐标图（第一次） | 108.87 ms | **5.28 ms**（查找 0.01 + 校验 5.24） | 103.58 ms | 0 | `map` |
+| 分类坐标图（紧接着再点一次） | 112.06 ms | **7.80 ms**（查找 0.04 + 校验 7.71） | 104.26 ms | 0 | `map` |
+
+- 定位加速：57.57 / 5.28 ≈ **10.9×**
+- 含点击的端到端加速：163.18 / 108.87 ≈ **1.5×**（瓶颈是 xdotool 点击，约 104 ms）
+- 建表：0.12 ms，8 个可见交互条目（有名称/有效包围盒的菜单和文本框等）
+- 校验：只看窗口几何是否变化，不走无障碍树；失败才会增量刷新
+
+命令：
+
+```bash
+linux-use map
+linux-use act click --name File --role menu
+```
+

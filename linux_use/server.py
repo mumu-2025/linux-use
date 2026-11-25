@@ -5,6 +5,7 @@ Methods:
   act({tool, ...args}) -> ActionResult
   run({task, max_steps?, mode?}) -> AgentResult (requires API key)
   windows() -> window list
+  map({refresh?: bool}) -> classified location map
 """
 
 from __future__ import annotations
@@ -38,6 +39,10 @@ def _dispatch(method: str, params: dict[str, Any] | None) -> Any:
             raise ValueError("act requires 'tool'")
         result = act(tool, **params)
         return {"ok": result.ok, "message": result.message, "data": result.data, "act_ms": result.act_ms}
+    if method in {"map", "location_map"}:
+        from .api import get_location_map
+        loc = get_location_map(refresh=bool(params.get("refresh")))
+        return loc.to_dict()
     if method == "windows":
         from .api import _ctx
         _, desktop, __, ___ = _ctx()

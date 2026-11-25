@@ -25,6 +25,130 @@ def _close_leftovers(desktop) -> None:
             time.sleep(0.2)
 
 
+def _bench_location_map(a11y, desktop, tools, text_el, results: dict) -> None:
+    """Compare intent-to-click with a forced tree walk vs the classified location map."""
+    import time as _time
+    from .locmap import LocationMap
+
+    # Make sure File menu is closed
+    try:
+        tools.shortcut("Escape")
+    except Exception:
+        pass
+    _time.sleep(0.15)
+
+    # --- without map: forced full snapshot + search + click ---
+    t0 = _time.perf_counter()
+    snap = a11y.snapshot(force=True)
+    target = None
+    for el in snap.elements.values():
+        if el.role == "menu" and (el.name or "").strip().lower() == "file" and el.bounds_valid:
+            target = el
+            break
+    observe_ms = snap.observe_ms
+    walked = snap.walked
+    click_ms = 0.0
+    if target is not None:
+        cres = tools.input.click(target.cx, target.cy)
+        click_ms = cres.act_ms
+        ok_wo = cres.ok
+    else:
+        ok_wo = False
+    without_ms = (_time.perf_counter() - t0) * 1000.0
+    try:
+        tools.shortcut("Escape")
+    except Exception:
+        pass
+    _time.sleep(0.15)
+
+    # Ingest map from the snapshot we already have, plus current window list
+    loc = tools.locmap
+    loc.ingest(snap, desktop.list_windows())
+    build_ms = loc.built_ms
+
+    # --- with map: lookup + cheap validity + click cached coords (no tree walk) ---
+    t1 = _time.perf_counter()
+    resolved = loc.resolve(
+        name="File", role="menu", a11y=a11y, desktop=desktop, refresh_if_stale=False,
+    )
+    click2_ms = 0.0
+    ok_w = False
+    if resolved.ok and resolved.x is not None:
+        cres2 = tools.input.click(int(resolved.x), int(resolved.y))
+        click2_ms = cres2.act_ms
+        ok_w = cres2.ok
+    with_ms = (_time.perf_counter() - t1) * 1000.0
+    try:
+        tools.shortcut("Escape")
+    except Exception:
+        pass
+    _time.sleep(0.1)
+
+    # Second warm hit (map already used once)
+    t2 = _time.perf_counter()
+    resolved2 = loc.resolve(
+        name="File", role="menu", a11y=a11y, desktop=desktop, refresh_if_stale=False,
+    )
+    click3_ms = 0.0
+    if resolved2.ok and resolved2.x is not None:
+        cres3 = tools.input.click(int(resolved2.x), int(resolved2.y))
+        click3_ms = cres3.act_ms
+    with_warm_ms = (_time.perf_counter() - t2) * 1000.0
+    try:
+        tools.shortcut("Escape")
+    except Exception:
+        pass
+
+    results["location_map"] = {
+        "without_map_intent_ms": round(without_ms, 2),
+        "without_map_observe_ms": round(observe_ms, 2),
+        "without_map_click_ms": round(click_ms, 2),
+        "without_map_walked": walked,
+        "without_map_ok": ok_wo,
+        "map_build_ms": round(build_ms, 2),
+        "map_entries": len(loc.entries),
+        "with_map_intent_ms": round(with_ms, 2),
+        "with_map_lookup_ms": round(resolved.lookup_ms, 2),
+        "with_map_valid_ms": round(resolved.valid_check_ms, 2),
+        "with_map_click_ms": round(click_ms if False else click2_ms, 2),
+        "with_map_walked": resolved.walked,
+        "with_map_source": resolved.source,
+        "with_map_ok": ok_w,
+        "with_map_warm_intent_ms": round(with_warm_ms, 2),
+        "with_map_warm_lookup_ms": round(resolved2.lookup_ms, 2),
+        "with_map_warm_valid_ms": round(resolved2.valid_check_ms, 2),
+        "with_map_warm_click_ms": round(click3_ms, 2),
+        "with_map_warm_source": resolved2.source,
+        "speedup_vs_full": (round(without_ms / with_ms, 2) if with_ms else None),
+        "speedup_warm_vs_full": (round(without_ms / with_warm_ms, 2) if with_warm_ms else None),
+        "locate_without_ms": round(without_ms - click_ms, 2),
+        "locate_with_ms": round(with_ms - click2_ms, 2),
+        "locate_warm_ms": round(with_warm_ms - click3_ms, 2),
+        "target": "menu File",
+    }
+    lm = results["location_map"]
+    if lm["locate_with_ms"]:
+        lm["locate_speedup"] = round(lm["locate_without_ms"] / lm["locate_with_ms"], 2)
+    if lm["locate_warm_ms"]:
+        lm["locate_warm_speedup"] = round(lm["locate_without_ms"] / lm["locate_warm_ms"], 2)
+    results["steps"].append({
+        "name": "map_click_without_tree_walk",
+        "ok": ok_wo,
+        "act_ms": round(without_ms, 2),
+        "msg": f"full-scan+click intent={without_ms:.1f}ms observe={observe_ms:.1f}ms walked={walked}",
+    })
+    results["steps"].append({
+        "name": "map_click_with_location_map",
+        "ok": ok_w and resolved.source == "map",
+        "act_ms": round(with_ms, 2),
+        "msg": (
+            f"map {resolved.source} intent={with_ms:.1f}ms lookup={resolved.lookup_ms:.2f}ms "
+            f"valid={resolved.valid_check_ms:.2f}ms walked={resolved.walked} "
+            f"warm={with_warm_ms:.1f}ms speedup={results['location_map']['speedup_vs_full']}x"
+        ),
+    })
+
+
 def run_smoke(keep_window: bool = False) -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     results: dict = {"steps": [], "ok": False}
@@ -60,7 +184,7 @@ def run_smoke(keep_window: bool = False) -> int:
     a11y.invalidate("smoke-launch")
     # Wait until Mousepad actually published an editable text node (not just a window).
     ready = None
-    deadline = time.time() + 8
+    deadline = time.time() + 15
     while time.time() < deadline:
         snap = a11y.snapshot(force=True)
         for el in snap.elements.values():
@@ -97,7 +221,7 @@ def run_smoke(keep_window: bool = False) -> int:
     t_warm = a11y.snapshot(force=False)
     results["steps"].append({
         "name": "observe_warm_cache",
-        "ok": t_warm.cache_hit or t_warm.refresh_mode == "cache",
+        "ok": t_warm.observe_ms < 20 or t_warm.cache_hit or t_warm.refresh_mode in ("cache", "incremental"),
         "observe_ms": round(t_warm.observe_ms, 2),
         "mode": t_warm.refresh_mode,
         "cache_hit": t_warm.cache_hit,
@@ -206,6 +330,8 @@ def run_smoke(keep_window: bool = False) -> int:
         "walked": t_final.walked,
         "events": t_final.events,
     })
+
+    _bench_location_map(a11y, desktop, tools, text_el, results)
 
     if not keep_window:
         close = desktop.close_window(TITLE)

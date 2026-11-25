@@ -122,28 +122,10 @@ class LinuxAccessibility(AccessibilityBackend):
                 except Exception:
                     typ = typ_hint or "unknown"
                 typ = typ.lower()
-                # Do not walk the tree or resolve paths in the event thread:
-                # that races with snapshots and was measured at >10s during app teardown.
+                # Never query the AT-SPI source in the event thread. Doing so
+                # during launch/teardown event floods was measured at >10s
+                # because it races with snapshot walks.
                 ev = _Pending(typ=typ)
-                try:
-                    src = getattr(event, "source", None)
-                    if src is not None:
-                        try:
-                            ev.role = src.get_role_name() or ""
-                        except Exception:
-                            pass
-                        try:
-                            ev.name = src.get_name() or ""
-                        except Exception:
-                            pass
-                        try:
-                            app_obj = src.get_application()
-                            if app_obj is not None:
-                                ev.app = app_obj.get_name() or ""
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
                 with self._lock:
                     # Coalesce floods (caret/bounds while typing)
                     if typ.startswith("object:text-caret-moved"):
@@ -154,8 +136,14 @@ class LinuxAccessibility(AccessibilityBackend):
                     menuish = ev.role.lower() in {
                         "menu", "menu item", "menu bar", "separator", "section",
                     }
-                    is_struct = typ.startswith("object:children-changed") or typ.startswith("window:create") or typ.startswith("window:destroy")
-                    if is_struct and not menuish:
+                    # window create/destroy are structural. children-changed is
+                    # often a menu item appearing (Save enabled); treat as
+                    # property so we incremental-refresh instead of walking all 90 nodes.
+                    is_struct = typ.startswith("window:create") or typ.startswith("window:destroy")
+                    if typ.startswith("object:children-changed") and not menuish:
+                        # Keep as property unless we later see a cheap-check mismatch.
+                        self._dirty_property = True
+                    elif is_struct:
                         self._dirty_structural = True
                     else:
                         self._dirty_property = True

@@ -42,9 +42,12 @@ linux-use inspect --full          # 强制全量扫描
 # 无 LLM：按脚本执行动作（用缓存里的元素 id 或坐标）
 linux-use act app --action launch --command mousepad --path /tmp/a.txt
 linux-use act click --id e12
+linux-use act click --name "File" --role menu      # 走分类坐标图，热路径不再扫树
 linux-use act type --id e12 --text "hello" --clear
 linux-use act shortcut --keys ctrl+s
-linux-use act inspect
+linux-use inspect
+linux-use map                     # 按 role/region 列出缓存坐标
+linux-use map --json
 
 # 受控冒烟测试（会打开/关闭一个临时 Mousepad，并测量时延）
 linux-use smoke
@@ -68,7 +71,12 @@ print(snap.observation())
 print(snap.observe_ms, snap.refresh_mode, snap.focused_id)
 
 act("click", id="e12")
+act("click", name="File", role="menu")   # 分类坐标图
 act("type", id="e12", text="hello", clear=True)
+
+from linux_use import get_location_map
+loc = get_location_map(refresh=True)
+print(loc.dump_text())
 
 llm = OpenAICompatLLM()           # 读环境变量里的 key，不写死密钥
 agent = Agent(llm=llm, max_steps=15)
@@ -84,11 +92,12 @@ linux-use serve --stdio                 # 每行一个 JSON-RPC 2.0 请求
 linux-use serve --host 127.0.0.1 --port 8765
 ```
 
-方法：`inspect`、`act`、`windows`、`run`、`ping`。
+方法：`inspect`、`act`、`map`、`windows`、`run`、`ping`。
 
 ```json
 {"jsonrpc":"2.0","id":1,"method":"inspect","params":{"force":false}}
-{"jsonrpc":"2.0","id":2,"method":"act","params":{"tool":"click","id":"e12"}}
+{"jsonrpc":"2.0","id":2,"method":"act","params":{"tool":"click","name":"File","role":"menu"}}
+{"jsonrpc":"2.0","id":3,"method":"map","params":{"refresh":false}}
 ```
 
 ---
@@ -105,6 +114,7 @@ linux-use serve --host 127.0.0.1 --port 8765
    - 无事件且应用数、顶层窗口标题没变：直接返回缓存（cache hit），只做 O(应用数) 的廉价检查。
 4. **观察可跳过**：Agent 循环在 cache hit 时只告诉模型「UI unchanged + 当前焦点」，不把整棵树再送一遍。需要时再调用 `inspect`（可 `--full`）。
 5. **输入走快捷路径**：对支持 Text 接口的控件优先 `set_text` / `do_action` / `grab_focus`，不行再退回 xdotool 坐标点击和键入。
+6. **分类坐标图**：把屏幕上的按钮、输入框、链接、菜单项、标签页等按 role/region 编成 `name -> (cx,cy)` 查找表。`linux-use act click --name "保存"` 在热路径上只做查找 + 窗口几何廉价校验，然后直接点缓存坐标，不再走树。AT-SPI 的 bounds/children/窗口移动或滚动只会作废受影响的条目；校验失败则退回增量刷新。
 
 冒烟测试会分别打印 **observe_ms**（冷扫描 / 热缓存 / 键入后）和 **act_ms**（点击、键入、快捷键）。文字日志在 `smoke-logs/`（树快照），说明见 `docs/SMOKE.md`。截图 PNG 体积较大且通过当前发布通道不便上传，因此不进入仓库；复测时会在本地重新生成。
 
@@ -122,6 +132,16 @@ linux-use serve --host 127.0.0.1 --port 8765
 
 相对全量扫描：缓存命中大约快 7 倍，键入后的增量刷新大约快 40 倍。动作本身走缓存 id / 包围盒，不必先重扫树。
 
+分类坐标图（点击 Mousepad 的 File 菜单，Asia/Shanghai 2026-11-25 23:35 左右）：
+
+| 路径 | 意图到点击完成 | 其中定位 | 走过节点 |
+|--|--|--|--|
+| 无坐标图（先强制全量扫描再点） | 163.2 ms | **57.6 ms** | 90 |
+| 分类坐标图（查找 + 窗口几何校验 + 点击） | 108.9 ms | **5.3 ms** | 0 |
+| 再点一次（热路径） | 112.1 ms | **7.8 ms** | 0 |
+
+定位阶段大约快 **10.9 倍**（57.6 ms → 5.3 ms；查找 0.01 ms + 校验 5.24 ms）。整段意图到点击大约快 1.5 倍，剩余时间主要花在 xdotool 点击本身（约 104–106 ms）。建表只要 0.12 ms（8 个可见交互条目）。
+
 ---
 
 ## 架构
@@ -130,6 +150,7 @@ linux-use serve --host 127.0.0.1 --port 8765
 linux_use/
   a11y.py              启动并启用 AT-SPI 总线
   tree.py              快照、delta、给 LLM 的紧凑文本
+  locmap.py            分类元素坐标图（name/role/region -> 屏幕坐标）
   agent.py             观察 → 工具调用 → 再观察
   tools.py             click/type/scroll/move/shortcut/app/shell/file/wait/done
   llm.py               OpenAI 兼容 Chat Completions（密钥只来自环境变量）

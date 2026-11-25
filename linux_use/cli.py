@@ -25,6 +25,11 @@ def main(argv: list[str] | None = None) -> int:
     p_ins.add_argument("--out", type=Path, help="Write output to a file")
     p_ins.add_argument("--include-hidden", action="store_true")
 
+    p_map = sub.add_parser("map", help="Dump the classified element location map (name/role/region -> coordinates).")
+    p_map.add_argument("--json", action="store_true")
+    p_map.add_argument("--refresh", action="store_true", help="Force a fresh snapshot before dumping")
+    p_map.add_argument("--out", type=Path)
+
     p_run = sub.add_parser("run", help="Run a plain-English task with an LLM.")
     p_run.add_argument("task", help="Task in plain language")
     p_run.add_argument("--max-steps", type=int, default=SETTINGS.max_steps)
@@ -36,6 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     p_act = sub.add_parser("act", help="Run one scripted action (no LLM).")
     p_act.add_argument("tool", help="click, type, shortcut, scroll, move, app, shell, wait, inspect, file, screenshot")
     p_act.add_argument("--id", dest="element_id")
+    p_act.add_argument("--name")
+    p_act.add_argument("--role")
+    p_act.add_argument("--region")
     p_act.add_argument("--x", type=int)
     p_act.add_argument("--y", type=int)
     p_act.add_argument("--from-x", type=int)
@@ -71,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.cmd == "inspect":
         return cmd_inspect(args)
+    if args.cmd == "map":
+        return cmd_map(args)
     if args.cmd == "run":
         return cmd_run(args)
     if args.cmd == "act":
@@ -99,6 +109,18 @@ def cmd_inspect(args) -> int:
     if args.out:
         args.out.write_text(text, encoding="utf-8")
         print(f"wrote {args.out} ({snap.refresh_mode}, {snap.observe_ms:.1f} ms, {snap.node_count} nodes)")
+    else:
+        print(text)
+    return 0
+
+
+def cmd_map(args) -> int:
+    from .api import get_location_map
+    loc = get_location_map(refresh=bool(args.refresh))
+    text = json.dumps(loc.to_dict(), ensure_ascii=False, indent=2) if args.json else loc.dump_text()
+    if args.out:
+        args.out.write_text(text, encoding="utf-8")
+        print(f"wrote {args.out} ({len(loc.entries)} entries, built_ms={loc.built_ms:.1f})")
     else:
         print(text)
     return 0
@@ -133,6 +155,7 @@ def cmd_act(args) -> int:
     kwargs = {}
     mapping = {
         "element_id": "id",
+        "name": "name", "role": "role", "region": "region",
         "x": "x", "y": "y",
         "from_x": "from_x", "from_y": "from_y",
         "button": "button", "clicks": "clicks",

@@ -3,7 +3,8 @@
 from .agent import Agent, AgentResult
 from .llm import OpenAICompatLLM
 from .tree import TreeSnapshot, UIElement
-from .api import act, inspect_desktop, scripted
+from .api import act, get_location_map, inspect_desktop, scripted
+from .locmap import LocationMap, LocEntry
 
 __all__ = [
     "Agent",
@@ -11,8 +12,11 @@ __all__ = [
     "OpenAICompatLLM",
     "TreeSnapshot",
     "UIElement",
+    "LocationMap",
+    "LocEntry",
     "act",
     "inspect_desktop",
+    "get_location_map",
     "scripted",
     "__version__",
 ]

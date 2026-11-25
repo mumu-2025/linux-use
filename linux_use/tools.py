@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .config import SAFE_FILE_ROOTS, SETTINGS
+from .locmap import LocationMap
 from .platform.base import ActionResult
 from .screenshot import take_screenshot
 
@@ -40,12 +41,13 @@ class ToolSpec:
 
 
 class Toolbelt:
-    def __init__(self, a11y, desktop, input_backend, experimental: bool = False):
+    def __init__(self, a11y, desktop, input_backend, experimental: bool = False, locmap: LocationMap | None = None):
         self.a11y = a11y
         self.desktop = desktop
         self.input = input_backend
         self.experimental = experimental
         self.last_observe_ms = 0.0
+        self.locmap = locmap if locmap is not None else LocationMap()
         self._tools = self._build()
 
     def _build(self) -> dict[str, ToolSpec]:
@@ -55,8 +57,11 @@ class Toolbelt:
                 "Click a cached element id or raw screen coordinates. Prefer id.",
                 _object({
                     "id": _str("Element id from the tree, e.g. e12"),
-                    "x": _int("Screen X if no id"),
-                    "y": _int("Screen Y if no id"),
+                    "name": _str("Visible name, resolved via the classified location map (no tree walk on a warm hit)"),
+                    "role": _str("Role or class, e.g. button, menu, text, link"),
+                    "region": _str("Window or frame title to disambiguate"),
+                    "x": _int("Screen X if no id/name"),
+                    "y": _int("Screen Y if no id/name"),
                     "button": _str("left, right, or middle", default="left"),
                     "clicks": _int("1=single, 2=double", default=1),
                 }),
@@ -194,8 +199,35 @@ class Toolbelt:
 
     # ------------------------------------------------------------------ tools
     def click(self, id: str | None = None, x: int | None = None, y: int | None = None,
-              button: str = "left", clicks: int = 1) -> ActionResult:
+              button: str = "left", clicks: int = 1,
+              name: str | None = None, role: str | None = None, region: str | None = None) -> ActionResult:
         t0 = time.perf_counter()
+        if (name or role) and not id and x is None:
+            resolved = self.locmap.resolve(
+                name=name, role=role, region=region,
+                a11y=self.a11y, desktop=self.desktop, refresh_if_stale=True,
+            )
+            if not resolved.ok or resolved.x is None:
+                return ActionResult(False, resolved.message, {
+                    "source": resolved.source, "intent_ms": resolved.intent_ms,
+                }, act_ms=_ms(t0))
+            res = self.input.click(int(resolved.x), int(resolved.y), button=button, clicks=clicks)
+            res.message = (
+                f"{resolved.message}; {res.message} "
+                f"source={resolved.source} intent_ms={resolved.intent_ms:.2f} "
+                f"lookup_ms={resolved.lookup_ms:.2f} valid_ms={resolved.valid_check_ms:.2f} "
+                f"walked={resolved.walked}"
+            )
+            res.data = {
+                **(res.data or {}),
+                "source": resolved.source,
+                "intent_ms": resolved.intent_ms,
+                "lookup_ms": resolved.lookup_ms,
+                "valid_check_ms": resolved.valid_check_ms,
+                "walked": resolved.walked,
+                "id": resolved.entry.id if resolved.entry else None,
+            }
+            return res
         if id:
             el = self.a11y.get_element(id)
             if el is None:
@@ -339,6 +371,10 @@ class Toolbelt:
     def inspect(self, force: bool = False) -> ActionResult:
         snap = self.a11y.snapshot(force=bool(force))
         self.last_observe_ms = snap.observe_ms
+        try:
+            self.locmap.ingest(snap, self.desktop.list_windows())
+        except Exception:
+            pass
         return ActionResult(True, snap.observation(), {"observe_ms": snap.observe_ms, "mode": snap.refresh_mode})
 
     def done(self, answer: str) -> ActionResult:
