@@ -13,6 +13,7 @@ from typing import Any, Callable
 from .config import SAFE_FILE_ROOTS, SETTINGS
 from .hybrid import HybridRouter
 from .locmap import LocationMap
+from .web import is_web_toolkit_field, is_omnibox
 from .platform.base import ActionResult
 from .screenshot import take_screenshot
 
@@ -82,10 +83,12 @@ class Toolbelt:
             ),
             "type": ToolSpec(
                 "type",
-                "Type text. If id is a text field, write via AT-SPI (faster). Otherwise type at the focused widget.",
+                "Type text. Native GTK fields use AT-SPI set_text; Chrome/Firefox fields use keyboard input.",
                 _object({
                     "text": _str("Text to type", required=True),
                     "id": _str("Optional element id to focus or set"),
+                    "name": _str("Locate by accessible name (e.g. Address and search bar)"),
+                    "role": _str("Locate by role (entry/text/…); aliases are accepted"),
                     "clear": _bool("Clear existing text first", default=False),
                     "press_enter": _bool("Press Enter afterwards", default=False),
                 }, required=["text"]),
@@ -125,7 +128,7 @@ class Toolbelt:
             ),
             "app": ToolSpec(
                 "app",
-                "Launch, focus, resize, or close an application window.",
+                "Launch, focus, resize, or close an application window. action=launch-chrome starts a separate accessibility-enabled Chrome (does not attach to an existing logged-in profile).",
                 _object({
                     "action": _str("launch, focus, resize, close, list", required=True),
                     "command": _str("Command to launch, e.g. mousepad"),
@@ -153,12 +156,16 @@ class Toolbelt:
                 _object({"seconds": {"type": "number", "description": "Seconds to wait", "default": 0.4}}),
                 self.wait,
             ),
-            "inspect": ToolSpec(
+                        "inspect": ToolSpec(
                 "inspect",
                 "Force a (possibly incremental) accessibility-tree refresh and return it.",
-                _object({"force": _bool("Full rescan, ignoring the cache", default=False)}),
+                _object({
+                    "force": _bool("Full rescan, ignoring the cache", default=False),
+                    "include_web": _bool("Also walk webpage document-web subtrees (slow)", default=False),
+                }),
                 self.inspect,
             ),
+
             "done": ToolSpec(
                 "done",
                 "Finish the task and return the final answer.",
@@ -276,19 +283,41 @@ class Toolbelt:
         return self.input.click(int(x), int(y), button=button, clicks=clicks)
 
     def type_text(self, text: str, id: str | None = None, clear: bool = False,
-                  press_enter: bool = False) -> ActionResult:
+                  press_enter: bool = False, name: str | None = None,
+                  role: str | None = None) -> ActionResult:
         t0 = time.perf_counter()
         if self.policy == "hybrid":
             res = self.router.type_text(
-                text, element_id=id, clear=clear, press_enter=press_enter,
+                text, element_id=id, name=name, role=role or "text",
+                clear=clear, press_enter=press_enter,
             )
             logs = self.router.consume_logs()
             res.data = {**(res.data or {}), "policy": "hybrid", "paths": logs}
             return res
+        if (name or role) and not id:
+            snap = getattr(self.router, "last_snap", None)
+            if snap is None:
+                snap = self.a11y.snapshot(force=False)
+                self.note_snapshot(snap)
+            el = self.router._find_in_snap(snap, name=name, role=role, element_id=None)
+            if el is None:
+                return ActionResult(False, "no text target", {"path": "miss"}, act_ms=_ms(t0))
+            id = el.id
         if id:
             el = self.a11y.get_element(id)
             if el is None:
                 return ActionResult(False, f"unknown element {id}", act_ms=_ms(t0))
+            if is_web_toolkit_field(el):
+                if el.bounds_valid:
+                    self.input.click(el.cx, el.cy)
+                else:
+                    self.a11y.grab_focus(id)
+                if is_omnibox(el):
+                    self.input.shortcut("ctrl+l")
+                res = self.input.type_text(text, clear=clear, press_enter=press_enter)
+                res.data = {**(res.data or {}), "path": "xdotool-web", "id": id,
+                            "set_text_attempted": False}
+                return res
             self.a11y.grab_focus(id)
             if clear:
                 if self.a11y.set_text(id, text):
@@ -351,6 +380,9 @@ class Toolbelt:
             x: int | None = None, y: int | None = None, width: int | None = None,
             height: int | None = None, args: list[str] | None = None) -> ActionResult:
         action = (action or "").lower()
+        if action in {"launch-chrome", "launch_chrome", "chrome"}:
+            from .chrome import launch_accessible_chrome
+            return launch_accessible_chrome(url=command or title or "about:blank", user_data_dir=None)
         if action == "list":
             wins = self.desktop.list_windows()
             text = "\n".join(
@@ -404,11 +436,15 @@ class Toolbelt:
         time.sleep(max(0.0, min(float(seconds), 15.0)))
         return ActionResult(True, f"waited {seconds}s", act_ms=_ms(t0))
 
-    def inspect(self, force: bool = False) -> ActionResult:
-        snap = self.a11y.snapshot(force=bool(force))
+    def inspect(self, force: bool = False, include_web: bool = False) -> ActionResult:
+        try:
+            snap = self.a11y.snapshot(force=bool(force), include_web=bool(include_web))
+        except TypeError:
+            snap = self.a11y.snapshot(force=bool(force))
         self.note_snapshot(snap)
         return ActionResult(True, snap.observation(), {
             "observe_ms": snap.observe_ms, "mode": snap.refresh_mode, "policy": self.policy,
+            "include_web": bool(include_web), "node_count": snap.node_count,
         })
 
     def done(self, answer: str) -> ActionResult:

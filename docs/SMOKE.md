@@ -156,3 +156,15 @@ hybrid 端到端约快 **5.23×**，主要是因为动作不再走两次约 105 
 脚注：original 的第 3 次观察出现一次约 15 s 的 AT-SPI 停顿（总时延 15277 ms，观察 14991 ms）；其余 4 次 original 在 750.7–790.8 ms。表中同时给出 min–max，比较时请用 median。
 
 English: four-mode rerun of the same scripted Mousepad task, no LLM, 5 alternating runs per mode (20/20 OK). hybrid is the new default: AT-SPI primitives first, in-memory cache locate when the last snapshot is trustworthy, locmap only for static chrome when no fresh snapshot is available, cheap post-action verify with one incremental retry. Median total 145.2 ms (5.23× vs original 758.9 ms). One original run hit a 15 s AT-SPI stall (max 15277 ms); compare medians. Every run saved the marker. Desktop left tidy.
+
+---
+
+## Chrome notes (2026-11-26, this box)
+
+The Mousepad numbers above are unchanged and still the GTK reference. A later Chrome search smoke (`smoke-logs/chrome-search-test-2026-11-26.md` and the post-fix report in the same folder) found:
+
+- Chrome omnibox: AT-SPI `set_text` reported success but left the text at `about:blank` (3/3). HYBRID now types those web-toolkit fields with the keyboard path (`xdotool-web`) and leaves Mousepad on `set_text`.
+- A full inspect that walked a Bing `document web` subtree measured **13513.9 ms**. Default `inspect` now keeps the document node but skips its descendants; use `--include-web` only when needed (time budget still applies).
+- Chrome started before the AT-SPI bus, or without `--force-renderer-accessibility`, is missing from the tree. Use `linux-use act app --action launch-chrome` (separate user-data-dir) rather than restarting an already logged-in profile.
+
+English: same points. Do not compare the Mousepad 145.2 ms median to Chrome wall times as if they were the same benchmark.

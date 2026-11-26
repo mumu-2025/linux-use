@@ -163,3 +163,82 @@ def test_logs_path_for_each_step():
     logs = router.consume_logs()
     assert logs
     assert any(lg["step"] == "click" and lg["path"] == "cache" for lg in logs)
+
+
+def _chrome_router():
+    bar = _el(
+        "e23", "entry", "Address and search bar",
+        app="Google Chrome",
+        states=["showing", "visible", "enabled", "editable", "focused"],
+        actions=["activate"],
+        text="about:blank",
+        x=184, y=71, width=572, height=24,
+    )
+    snap = TreeSnapshot(elements={"e23": bar}, roots=["e23"],
+                        generation=1, refresh_mode="full", node_count=1, walked=1)
+    a11y = FakeA11y(snap)
+    desk = FakeDesktop()
+    loc = LocationMap()
+    loc.ingest(snap, desk.list_windows())
+    inp = FakeInput()
+    router = HybridRouter(a11y, desk, inp, loc)
+    router.last_snap = snap
+    return router, a11y, inp, snap
+
+
+def test_chrome_omnibox_uses_keyboard_not_set_text():
+    router, a11y, inp, snap = _chrome_router()
+    res = router.type_text("https://www2.bing.com", element_id="e23", clear=True, press_enter=True)
+    assert res.ok
+    assert res.data["path"] == "xdotool-web"
+    assert res.data.get("set_text_attempted") is False
+    assert not any(c[0] == "set_text" for c in a11y.actions)
+    assert any(c == ("type", "https://www2.bing.com") for c in inp.calls)
+    assert any(c == ("shortcut", "ctrl+l") for c in inp.calls)
+
+
+def test_chrome_omnibox_locate_by_name_and_role_alias():
+    router, a11y, inp, snap = _chrome_router()
+    # role "text" should still match the "entry" omnibox via aliases
+    res = router.type_text("https://example.com", name="Address and search bar", role="text")
+    assert res.ok
+    assert res.data["path"] == "xdotool-web"
+    assert res.data["id"] == "e23"
+
+
+def test_chrome_set_text_is_not_retried_when_it_would_be_a_noop():
+    """If a future change reintroduces a set_text probe, it must not loop."""
+    router, a11y, inp, snap = _chrome_router()
+
+    def lying_set_text(element_id, text):
+        # Returns True but leaves the widget unchanged — the 2026-11-26 bug.
+        a11y.actions.append(("set_text", element_id, text))
+        return True
+
+    a11y.set_text = lying_set_text
+    res = router.type_text("hello", element_id="e23")
+    assert res.ok
+    assert res.data["path"] == "xdotool-web"
+    # Preferred path must not call set_text at all.
+    assert not any(c[0] == "set_text" for c in a11y.actions)
+
+
+def test_gtk_mousepad_still_uses_set_text():
+    router, a11y, desk, loc, inp, snap = _router(fresh=True)
+    res = router.type_text("LINUX_USE_BENCH_OK", element_id="e1")
+    assert res.ok
+    assert res.data["path"] == "atspi"
+    assert any(c[0] == "set_text" for c in a11y.actions)
+    assert inp.calls == []  # no keyboard fallback
+
+
+def test_web_field_helpers():
+    from linux_use.web import is_omnibox, is_web_toolkit_field, roles_match
+    chrome = _el("e1", "entry", "Address and search bar", app="Google Chrome")
+    gtk = _el("e2", "text", "body", app="mousepad")
+    assert is_omnibox(chrome)
+    assert is_web_toolkit_field(chrome)
+    assert not is_web_toolkit_field(gtk)
+    assert roles_match("entry", "text")
+    assert roles_match("entry", "entry")
+    assert not roles_match("button", "entry")

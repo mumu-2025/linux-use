@@ -22,9 +22,12 @@ def _ctx():
     return _a11y, _desktop, _input, _tools
 
 
-def inspect_desktop(force: bool = False) -> TreeSnapshot:
+def inspect_desktop(force: bool = False, include_web: bool | None = None) -> TreeSnapshot:
     a11y, desktop, _, tools = _ctx()
-    snap = a11y.snapshot(force=force)
+    try:
+        snap = a11y.snapshot(force=force, include_web=include_web)
+    except TypeError:
+        snap = a11y.snapshot(force=force)
     tools.note_snapshot(snap)
     return snap
 
@@ -55,3 +58,14 @@ def get_location_map(*, refresh: bool = False):
     if refresh or not tools.locmap.entries:
         inspect_desktop(force=refresh)
     return tools.locmap
+
+
+def launch_accessible_chrome(url: str = "about:blank", **kwargs):
+    """Start a new Chrome with --force-renderer-accessibility and its own profile.
+
+    Does not attach to or restart an already-open logged-in Chrome. See
+    ``linux_use.chrome.launch_accessible_chrome``.
+    """
+    from .chrome import launch_accessible_chrome as _launch
+    _ctx()  # ensure session backends / a11y bus
+    return _launch(url, **kwargs)

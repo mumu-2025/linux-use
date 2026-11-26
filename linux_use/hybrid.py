@@ -23,6 +23,7 @@ from typing import Any
 from .locmap import LocationMap, classify_role
 from .platform.base import ActionResult
 from .tree import TreeSnapshot, UIElement
+from .web import is_omnibox, is_web_toolkit_field, name_matches, roles_match
 
 STATIC_CLASSES = {
     "button", "menu", "tab", "checkbox", "radio", "menu_bar", "toolbar",
@@ -105,24 +106,23 @@ class HybridRouter:
             return snap.elements[element_id]
         want_role = (role or "").strip().lower()
         want_class = classify_role(role) if role else ""
-        want_name = " ".join((name or "").split()).casefold()
         exact = []
         loose = []
         for el in snap.elements.values():
-            if want_role and el.role != want_role and classify_role(el.role) != want_class:
+            if want_role:
+                if not (roles_match(el.role, want_role) or classify_role(el.role) == want_class):
+                    continue
+            if name:
+                matched, is_exact = name_matches(el, name)
+                if not matched:
+                    continue
+                (exact if is_exact else loose).append(el)
                 continue
-            if want_name:
-                key = " ".join((el.name or "").split()).casefold()
-                if key == want_name:
-                    exact.append(el)
-                    continue
-                if want_name not in key:
-                    continue
             loose.append(el)
         cands = exact or loose
         if not cands:
             return None
-        cands.sort(key=lambda e: (not e.focused, not e.showing, not e.bounds_valid))
+        cands.sort(key=lambda e: (not e.focused, not e.showing, not e.bounds_valid, -e.width))
         return cands[0]
 
     # ------------------------------------------------------------------ decide + act
@@ -292,9 +292,20 @@ class HybridRouter:
         if not eid:
             dec = self.decide(name=name, role=role, element_id=element_id)
             eid = dec.element_id
+            # "text" used to miss Chrome's "entry" omnibox; try aliases once.
+            if eid is None and role in {None, "text", "entry", "edit"}:
+                dec = self.decide(name=name, role="entry", element_id=element_id)
+                eid = dec.element_id
             if eid is None:
                 return ActionResult(False, "hybrid type: no text target",
                                     {"path": "miss"}, act_ms=(time.perf_counter() - t0) * 1000.0)
+        el = self.a11y.get_element(eid) if eid else None
+        if not el and dec and dec.snap is not None and eid:
+            el = dec.snap.elements.get(eid)
+        if eid and is_web_toolkit_field(el):
+            return self._type_web_field(
+                el, text, clear=clear, press_enter=press_enter, t0=t0, dec=dec,
+            )
         if eid:
             self.a11y.grab_focus(eid)
             if self.a11y.set_text(eid, text):
@@ -303,10 +314,25 @@ class HybridRouter:
                 ok, vms, detail = self.verify("text:" + text, element_id=eid)
                 path = "atspi"
                 if not ok:
+                    # Incremental only — never force a full web-tree walk just
+                    # because set_text verify failed on a native widget.
                     self.observe(force=False, reason="type-verify-retry")
                     if self.a11y.set_text(eid, text):
                         ok, vms, detail = self.verify("text:" + text, element_id=eid)
                         path = "retry-incremental"
+                    if not ok:
+                        # Last resort for a native field: keyboard, not another
+                        # set_text + 30s wait.
+                        if el and getattr(el, "bounds_valid", False):
+                            self.input.click(int(el.cx), int(el.cy))
+                        res = self.input.type_text(text, clear=clear, press_enter=press_enter)
+                        wall = (time.perf_counter() - t0) * 1000.0
+                        self.log("type", "xdotool", res.message, res.ok, wall,
+                                 dec.walked if dec else 0)
+                        res.data = {**(res.data or {}), "path": "xdotool", "id": eid,
+                                    "verify_ms": vms, "fallback": "set_text-verify-failed"}
+                        res.act_ms = wall
+                        return res
                 self.log("type", path, detail, ok, (time.perf_counter() - t0) * 1000.0,
                          dec.walked if dec else 0)
                 wall = (time.perf_counter() - t0) * 1000.0
@@ -319,6 +345,48 @@ class HybridRouter:
                 }, act_ms=wall)
         res = self.input.type_text(text, clear=clear, press_enter=press_enter)
         self.log("type", "xdotool", res.message, res.ok, res.act_ms)
+        res.data = {**(res.data or {}), "path": "xdotool"}
+        return res
+
+    def _type_web_field(self, el, text: str, *, clear: bool, press_enter: bool,
+                        t0: float, dec) -> ActionResult:
+        """Chrome/Firefox text fields: skip AT-SPI set_text (often a no-op).
+
+        Measured 2026-11-26: Chrome omnibox set_text returned success but left
+        the value at 'about:blank' (retry-incremental, 3/3). The reliable path
+        is click / ctrl+l then the existing xdotool type. We do that first for
+        these widgets so we do not burn tens of seconds on a dead set_text +
+        page-load wait. Native GTK set_text is unchanged (see type_text).
+        """
+        eid = el.id
+        if getattr(el, "bounds_valid", False):
+            self.input.click(int(el.cx), int(el.cy))
+        else:
+            self.a11y.grab_focus(eid)
+        if is_omnibox(el):
+            self.input.shortcut("ctrl+l")
+        res = self.input.type_text(text, clear=clear, press_enter=press_enter)
+        wall = (time.perf_counter() - t0) * 1000.0
+        # Omnibox a11y text often does not update after a successful type; do
+        # not fail the action on a soft verify miss.
+        ok_v, vms, detail = self.verify("text:" + text, element_id=eid)
+        path = "xdotool-web"
+        self.log("type", path, detail, res.ok, wall, dec.walked if dec else 0)
+        res.ok = bool(res.ok)
+        res.message = (
+            f"hybrid {path} keyboard type [{eid}] ({len(text)} chars); "
+            f"{res.message}; a11y-verify={detail}"
+        )
+        res.data = {
+            **(res.data or {}),
+            "path": path, "id": eid, "verify_ms": vms, "verify_ok": ok_v,
+            "locate_ms": dec.locate_ms if dec else 0.0,
+            "observe_ms": dec.observe_ms if dec else 0.0,
+            "act_ms": res.act_ms,
+            "walked": dec.walked if dec else 0,
+            "set_text_attempted": False,
+        }
+        res.act_ms = wall
         return res
 
     def shortcut(self, keys: str, *, expect: str | None = None,

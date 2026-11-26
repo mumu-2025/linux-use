@@ -102,6 +102,10 @@ class LinuxAccessibility(AccessibilityBackend):
         self._objects: dict[str, Any] = {}
         self._cache: TreeSnapshot | None = None
         self._listeners: list[Any] = []
+        self._include_web = bool(SETTINGS.include_web)
+        self._cache_include_web = False
+        self._scan_t0 = 0.0
+        self._web_skipped = 0
 
     # ------------------------------------------------------------------ setup
     def ensure_ready(self) -> None:
@@ -185,10 +189,13 @@ class LinuxAccessibility(AccessibilityBackend):
             self._pending.append(_Pending(typ=f"manual:{reason}"))
 
     # ------------------------------------------------------------------ snapshot
-    def snapshot(self, *, force: bool = False) -> TreeSnapshot:
+    def snapshot(self, *, force: bool = False, include_web: bool | None = None) -> TreeSnapshot:
         self.ensure_ready()
         t0 = time.perf_counter()
         self._pump()
+        want_web = self._include_web if include_web is None else bool(include_web)
+        web_mode_changed = self._cache is not None and bool(self._cache_include_web) != want_web
+        self._include_web = want_web
         with self._lock:
             pending = self._pending
             self._pending = []
@@ -200,7 +207,10 @@ class LinuxAccessibility(AccessibilityBackend):
         events = _summarize_events(pending)
 
         dirty_apps = sorted({ev.app for ev in pending if ev.app})
-        if force or self._cache is None:
+        # Switching include_web on/off must rebuild; a shell-only cache cannot
+        # suddenly sprout page contents, and a web-heavy cache is what we want
+        # to *avoid* when locating the omnibox or a tab.
+        if force or self._cache is None or web_mode_changed:
             snap = self._full_scan()
             snap.refresh_mode = "full"
             snap.cache_hit = False
@@ -241,12 +251,15 @@ class LinuxAccessibility(AccessibilityBackend):
                 events.append("cheap-check-mismatch")
 
         snap.events = events
+        if self._web_skipped:
+            snap.events = list(snap.events) + [f"web-subtrees-skipped={self._web_skipped}"]
         snap.observe_ms = (time.perf_counter() - t0) * 1000.0
         if self._cache is not None and snap.refresh_mode != "cache":
             snap.delta = diff_snapshots(self._cache, snap)
         if snap.refresh_mode != "cache":
             self._cache = snap
             self._generation = snap.generation
+            self._cache_include_web = bool(self._include_web)
         else:
             # Keep last full cache as the source of truth
             pass
@@ -269,6 +282,7 @@ class LinuxAccessibility(AccessibilityBackend):
     # ------------------------------------------------------------------ scans
     def _full_scan(self) -> TreeSnapshot:
         from gi.repository import Atspi
+        from ..web import WEB_DOCUMENT_ROLES
 
         desktop = Atspi.get_desktop(0)
         elements: dict[str, UIElement] = {}
@@ -277,6 +291,9 @@ class LinuxAccessibility(AccessibilityBackend):
         active_app = None
         walked = 0
         truncated = False
+        self._scan_t0 = time.perf_counter()
+        self._web_skipped = 0
+        budget_s = max(0.05, float(SETTINGS.web_walk_budget_ms) / 1000.0)
         # Keep previous path->id mapping so IDs stay stable across full scans
         new_objects: dict[str, Any] = {}
 
@@ -317,14 +334,35 @@ class LinuxAccessibility(AccessibilityBackend):
             descend = True
             if depth >= 12:
                 descend = False
+            # Webpage guts (document web) are expensive over AT-SPI. Keep the
+            # document node for the tab/page title, but skip children unless
+            # the caller asked for include_web. Even then, stop if we blow the
+            # time budget so a results page cannot stall locate for 10+ seconds.
+            role_l = (el.role or "").strip().lower()
+            if role_l in WEB_DOCUMENT_ROLES:
+                if not self._include_web:
+                    descend = False
+                    self._web_skipped += 1
+                elif (time.perf_counter() - self._scan_t0) >= budget_s:
+                    descend = False
+                    truncated = True
+                    self._web_skipped += 1
             if not el.bounds_valid and el.role not in {"application", "frame", "desktop frame"}:
                 # Still walk application/frame; skip hidden widget guts
                 if el.role not in {"menu bar", "page tab list"}:
                     descend = el.focused or "expanded" in el.states or "selected" in el.states
+            if descend and (time.perf_counter() - self._scan_t0) >= budget_s:
+                # Hard cap for the whole scan (4x web budget) so even shell
+                # walks cannot hang the default observe path.
+                descend = False
+                truncated = True
             if descend:
                 child_ids = []
                 for i in range(n):
                     if len(elements) >= self.max_nodes:
+                        truncated = True
+                        break
+                    if (time.perf_counter() - self._scan_t0) >= budget_s:
                         truncated = True
                         break
                     try:

@@ -1,23 +1,134 @@
-observe_ms=1.0 mode=incremental cache_hit=False generation=4 nodes=90 walked=1
+observe_ms=1.3 mode=incremental cache_hit=False generation=5 nodes=280 walked=1
 active_app=mousepad
-focused=[e75] text '' (641,381,638,447)
-events: object:bounds-changed×5; object:property-change:accessible-name×2; object:children-changed:add×2; object:text-changed:insert×1; e.g. object:property-change:accessible-name mousepad frame, object:property-change:accessible-name mousepad button, object:children-changed:add mousepad menu, object:children-changed:add mousepad menu item, object:text-changed:insert mousepad text, object:bounds-changed mousepad text
-delta added=0 removed=0 updated=1
-  * [e75] text ''->'LINUX_USE_SMOKE_OK_20261125'
-[e1] application "mousepad"
-  [e2] frame "/tmp/linux-use-smoke-pad.txt - Mousepad" (635,322,650,514) active
-    [e3] filler (640,351,640,480)
-      [e4] filler (640,351,640,27)
-        [e5] menu bar (640,351,640,27)
-          [e6] menu "File" (640,351,37,27) actions=click
-          [e26] menu "Edit" (677,351,39,27) actions=click
-          [e46] menu "Search" (716,351,57,27) actions=click
-          [e80] menu "View" (773,351,44,27) actions=click
-          [e55] menu "Document" (817,351,81,27) actions=click
-          [e68] menu "Help" (898,351,45,27) actions=click
-      [e71] filler
-      [e72] page tab list (640,380,640,449)
-        [e73] page tab selected
-          [e74] scroll pane (640,380,640,449)
-            [e75] text (641,381,638,447) editable focused text='LINUX_USE_SMOKE_OK_20261125'
-      [e78] status bar
+focused=[e277] text 'LINUX_USE_SMOKE_OK_20261125' (641,381,638,447)
+events: object:bounds-changed×5; object:property-change:accessible-name×2; object:children-changed:add×2; object:text-changed:insert×1; e.g. object:property-change:accessible-name, object:property-change:accessible-name, object:children-changed:add, object:children-changed:add, object:text-changed:insert, object:bounds-changed; web-subtrees-skipped=2
+[e1] application "Google Chrome"
+  [e2] frame "哔哩哔哩 - Search - Google Chrome" (0,0,1920,1159)
+    [e3] panel (0,0,1920,1159)
+      [e4] panel (0,0,1920,1159)
+        [e5] button "Minimize" (1821,0,32,40) actions=press,showContextMenu
+        [e7] button "Restore" (1853,0,32,40) actions=press,showContextMenu
+        [e8] button "Close" (1885,0,35,40) actions=press,showContextMenu
+        [e10] panel (0,0,1920,1159)
+          [e11] panel (0,40,1920,1119)
+          [e12] panel (0,40,1920,46)
+            [e13] tool bar (0,40,1920,46) actions=doDefault,showContextMenu
+              [e14] button "Back" (0,46,40,34) actions=press,showContextMenu
+              [e15] button "Forward" (42,46,34,34) actions=doDefault,showContextMenu
+              [e16] button "Reload" (78,46,34,34) actions=press,showContextMenu
+              [e19] panel (121,46,1660,34)
+                [e21] button "View site information" (126,51,24,24) actions=press,showContextMenu
+                [e23] entry "Address and search bar" (158,51,1579,24) editable actions=activate,showContextMenu text='www2.bing.com/search?q=哔哩哔哩&rdr=1&rdrig=1A1A608E2ED440759046CA9279724458'
+                [e44] panel (1745,51,24,24)
+                  [e48] button "Translate" (1745,51,24,24) actions=doDefault,showContextMenu
+                  [e73] button "Bookmark this tab" (1745,51,24,24) actions=press,showContextMenu
+              [e77] panel (1790,46,34,34)
+                [e80] button "Extensions" (1790,46,34,34) actions=open,showContextMenu
+              [e82] panel (1833,55,2,16)
+              [e83] panel
+              [e87] button "You" (1844,46,34,34) actions=press,showContextMenu
+              [e89] button "Chrome" (1880,46,40,34) actions=open,showContextMenu
+            [e90] tool bar "Bookmarks" actions=doDefault,showContextMenu
+            [e91] panel
+          [e92] panel (0,86,1920,1073)
+            [e93] panel (0,86,1920,1073)
+            [e94] panel (0,87,1920,1072)
+              [e95] panel (0,87,1920,1072)
+                [e96] panel (0,87,1920,1072)
+              [e97] panel (0,87,1920,1072)
+              [e98] panel
+              [e99] document web "哔哩哔哩 - Search" (0,87,1920,1072) focused
+              [e100] panel
+              [e101] panel
+              [e102] panel (0,87,1920,1072)
+              [e103] panel (0,87,1920,1072)
+              [e104] panel (0,87,1920,1072)
+              [e105] panel (0,87,1920,1072)
+              [e106] panel (0,87,1920,1072)
+              [e107] panel (1772,1135,148,24)
+              [e110] panel (0,87,1920,1072)
+              [e111] panel (0,87,1920,1072)
+            [e113] panel
+            [e114] panel
+            [e115] panel
+            [e116] panel
+            [e117] panel
+            [e118] panel
+            [e119] panel (0,86,1920,1073)
+          [e120] panel "Infobar Container"
+          [e121] panel (0,40,1920,1119)
+            [e122] panel (-1,39,10,10)
+            [e123] panel (1911,39,10,10)
+            [e124] panel (-1,1150,10,10)
+            [e125] panel (1911,1150,10,10)
+            [e126] panel (0,40,1920,1119)
+          [e127] panel
+          [e128] panel (0,0,1821,41)
+            [e129] panel (6,0,28,41)
+              [e130] button "Tab search" (6,6,28,28) actions=open,showContextMenu
+            [e131] panel (28,0,1717,41)
+              [e132] page tab list (28,0,1717,41)
+                [e133] page tab "about:blank - Memory usage - 23.4 MB" (28,0,188,41) actions=doDefault,showContextMenu
+                  [e135] button "Close" (174,6,28,28) actions=press,showContextMenu
+                [e136] page tab "New Tab - Memory usage - 76.7 MB" (198,0,188,41) actions=doDefault,showContextMenu
+                  [e138] button "Close" (344,6,28,28) actions=press,showContextMenu
+                [e139] page tab "Access Denied - Memory usage - 29.1 MB" (368,0,188,41) actions=doDefault,showContextMenu
+                  [e141] button "Close" (514,6,28,28) actions=press,showContextMenu
+                [e142] page tab "Search - Microsoft Bing" (538,0,188,41) actions=doDefault,showContextMenu
+                  [e144] button "Close" (684,6,28,28) actions=press,showContextMenu
+                [e145] page tab "AT-SPI 无障碍树 - Search" (708,0,188,41) actions=doDefault,showContextMenu
+                  [e147] button "Close" (854,6,28,28) actions=press,showContextMenu
+                [e148] page tab "哔哩哔哩 - Search - Memory usage - 76.2 MB" (878,0,188,41) actions=doDefault,showContextMenu
+                  [e150] button "Close" (1024,6,28,28) actions=press,showContextMenu
+                [e151] page tab "上海明天天气 - Search - Memory usage - 57.6 MB" (1048,0,188,41) actions=doDefault,showContextMenu
+                  [e153] button "Close" (1194,6,28,28) actions=press,showContextMenu
+                [e154] page tab "上海明天天气 - Search" (1218,0,188,41) actions=doDefault,showContextMenu
+                  [e156] button "Close" (1364,6,28,28) actions=press,showContextMenu
+                [e157] page tab "AT-SPI 无障碍树 - Search" (1388,0,188,41) actions=doDefault,showContextMenu
+                  [e159] button "Close" (1534,6,28,28) actions=press,showContextMenu
+                [e160] page tab "哔哩哔哩 - Search - Memory usage - 70.3 MB" (1558,0,187,41) selected actions=doDefault,showContextMenu
+                  [e162] button "Close" (1703,6,28,28) actions=press,showContextMenu
+                [e163] panel
+              [e164] panel (28,0,1717,41)
+            [e165] button "New Tab" (1739,0,28,41) actions=press,showContextMenu
+            [e166] panel (1779,0,42,41)
+          [e167] page tab list
+            [e168] panel
+            [e169] panel
+            [e171] panel
+          [e172] panel
+          [e173] panel
+          [e174] panel
+          [e175] panel (0,0,1920,1159)
+          [e176] panel
+      [e177] panel (0,0,1920,1159)
+  [e178] frame (115,35,1704,88)
+    [e179] panel (115,35,1704,88)
+      [e180] panel (131,51,1672,44)
+        [e181] panel
+        [e182] panel (131,51,1672,44)
+          [e183] document web focused
+  [e184] frame (99,25,1704,218)
+    [e185] panel (99,25,1704,218)
+      [e186] panel (115,41,1672,174)
+        [e187] panel (121,46,1660,34)
+        [e188] panel (115,85,1672,130)
+          [e189] panel (115,85,1672,130)
+            [e190] panel (115,85,1672,130)
+[e191] application "mousepad"
+  [e192] frame "/tmp/linux-use-smoke-pad.txt - Mousepad" (635,322,650,514) active
+    [e193] filler (640,351,640,480)
+      [e194] filler (640,351,640,27)
+        [e195] menu bar (640,351,640,27)
+          [e196] menu "File" (640,351,37,27) actions=click
+          [e216] menu "Edit" (677,351,39,27) actions=click
+          [e236] menu "Search" (716,351,57,27) actions=click
+          [e246] menu "View" (773,351,44,27) actions=click
+          [e257] menu "Document" (817,351,81,27) actions=click
+          [e270] menu "Help" (898,351,45,27) actions=click
+      [e273] filler
+      [e274] page tab list (640,380,640,449)
+        [e275] page tab selected
+          [e276] scroll pane (640,380,640,449)
+            [e277] text (641,381,638,447) editable focused text='LINUX_USE_SMOKE_OK_20261125'
+      [e280] status bar

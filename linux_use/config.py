@@ -14,6 +14,13 @@ def env(name: str, default: str | None = None) -> str | None:
     return value
 
 
+def env_bool(name: str, default: bool = False) -> bool:
+    value = env(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _file_roots() -> tuple[Path, ...]:
     roots = [Path.home(), Path("/tmp"), Path.cwd()]
     extra = env("LINUX_USE_FILE_ROOTS")
@@ -64,6 +71,19 @@ class Settings:
     # Default action policy: hybrid | cache | locmap | original
     policy: str = field(
         default_factory=lambda: (env("LINUX_USE_POLICY") or "hybrid").strip().lower()
+    )
+    # Walking Chrome/Firefox document-web subtrees can take >10s. Default is
+    # to keep the document node (page title) but skip its descendants.
+    include_web: bool = field(default_factory=lambda: env_bool("LINUX_USE_INCLUDE_WEB", False))
+    web_walk_budget_ms: float = field(
+        default_factory=lambda: float(env("LINUX_USE_WEB_WALK_BUDGET_MS") or "400")
+    )
+    chrome_user_data_dir: str = field(
+        default_factory=lambda: env("LINUX_USE_CHROME_USER_DATA_DIR") or "/tmp/linux-use-chrome-a11y"
+    )
+    # Agent/container desktops often need this; set to 0 on a normal desktop.
+    chrome_no_sandbox: bool = field(
+        default_factory=lambda: env_bool("LINUX_USE_CHROME_NO_SANDBOX", True)
     )
 
 

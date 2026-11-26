@@ -3,7 +3,7 @@
 from .agent import Agent, AgentResult
 from .llm import OpenAICompatLLM
 from .tree import TreeSnapshot, UIElement
-from .api import act, get_location_map, inspect_desktop, scripted
+from .api import act, get_location_map, inspect_desktop, launch_accessible_chrome, scripted
 from .locmap import LocationMap, LocEntry
 
 __all__ = [
@@ -18,6 +18,7 @@ __all__ = [
     "inspect_desktop",
     "get_location_map",
     "scripted",
+    "launch_accessible_chrome",
     "__version__",
 ]
 

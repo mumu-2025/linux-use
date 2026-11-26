@@ -14,6 +14,26 @@
 
 ---
 
+## 为什么创建这个仓库
+
+要在 Linux 云电脑上更快、更可靠地找到界面元素并完成点击、输入等操作。每一步都全量重建 UI 树太慢，也不想默认依赖视觉模型。逻辑受到 Windows-Use「读无障碍树再执行动作」的启发，但代码是为 Linux AT-SPI2（以及后续的 Windows / macOS 后端）单独实现的，没有克隆或安装那个仓库。
+
+## 需求
+
+- 用系统无障碍树读取桌面，默认 **HYBRID** 策略：在缓存树、分类坐标图和无障碍原语之间自动选择，尽量缩短定位和操作耗时。
+- 无 LLM 时也能 `inspect` / `act` / `smoke` / `bench`；有密钥时可用自然语言跑任务。提供 CLI（`linux-use` / `desktop-use`）、Python API、JSON-RPC 和 MCP。
+- **2026-11-26 新增（云电脑实测后）：**
+  - Chrome / Firefox 等网页工具包的输入框（尤其是地址栏）不能再走会「回报成功但字没写进去」的 AT-SPI `set_text`，应自动改走点击或 `ctrl+l` 再加上键盘输入，并且不要在失败路径上空等几十秒。
+  - 默认 `inspect` 不深入 `document web` 子树，避免为了定位地址栏或标签而卡十几秒；需要页面内部节点时再显式 `--include-web`，并有时间上限。
+  - 可以另开一只带 `--force-renderer-accessibility` 的独立 Chrome（先确保 AT-SPI 总线已起来），不得附着或重启用户已经登录的浏览器配置。
+- Linux（X11 + AT-SPI）必须在本机实测通过。Windows / macOS 后端可以有完整代码，但在真实硬件验证前不得声称可用。
+
+## 应用场景
+
+- 在 Linux 云桌面或本机 X11 会话里，给智能体或脚本快速定位按钮、菜单、输入框、浏览器地址栏并执行动作。
+- 通过 MCP / JSON-RPC 接到 Cursor、Claude 或其他 Agent，做受控的桌面操作（冒烟测试只用临时 Mousepad；浏览器测试用独立可访问的 Chrome，不打扰已登录会话）。
+- 对比 `original` / `cache` / `locmap` / `hybrid` 四种策略的时延，或在改策略后做复测。
+
 ## 安装
 
 系统依赖（Debian/Ubuntu）：
@@ -54,7 +74,9 @@ pip install -e '.[macos]'     # pyobjc ApplicationServices / Cocoa / Quartz
 # 无 LLM：把当前无障碍树打出来（inspect 模式）
 linux-use inspect
 linux-use inspect --json --out /tmp/tree.json
-linux-use inspect --full          # 强制全量扫描
+linux-use inspect --full          # 强制重扫外壳（默认仍跳过网页子树）
+linux-use inspect --include-web   # 连网页内部一起扫（较慢）
+linux-use act app --action launch-chrome --command about:blank
 
 # 无 LLM：按脚本执行动作（用缓存里的元素 id 或坐标）
 linux-use act app --action launch --command mousepad --path /tmp/a.txt
@@ -188,6 +210,39 @@ linux-use serve --host 127.0.0.1 --port 8765
 
 ---
 
+
+## Chrome / 网页（2026-11-26 实测后的行为）
+
+在 Chrome 地址栏上，AT-SPI `set_text` 经常会回报成功但文字其实没改掉（本机 2026-11-26 三次均为 `retry-incremental`，值仍是 `about:blank`）。默认 **HYBRID** 现在对这些网页工具包输入框（Chrome / Chromium / Firefox 等的 `entry`，以及名字像 “Address and search bar” 的地址栏）**直接走键盘输入**：先点击或 `ctrl+l`，再用现有的 xdotool 键入。GTK 编辑器（Mousepad 等）仍然优先 `set_text`，那条路径没有改。
+
+默认 `linux-use inspect` **不再深入** `document web` 子树（会保留文档节点本身，所以还能看到标签/页面标题）。本机在必应结果标签上一次带网页子树的全量 inspect 曾测到 **13513.9 ms**；只扫浏览器外壳时通常是大约 90–170 ms。若确实需要页面内部控件，再显式打开：
+
+```bash
+linux-use inspect --include-web
+# Python
+from linux_use import inspect_desktop
+snap = inspect_desktop()                 # 默认：外壳，快
+snap = inspect_desktop(include_web=True) # 包含网页子树；仍有时间上限
+```
+
+启动一只**独立**的、能进无障碍树的 Chrome（不会附着到、也不会重启已经登录的那个配置）：
+
+```bash
+# 会先确保 AT-SPI 总线已起来，并加上 --force-renderer-accessibility
+# 以及单独的 --user-data-dir（默认 /tmp/linux-use-chrome-a11y）
+linux-use act app --action launch-chrome --command about:blank
+```
+
+```python
+from linux_use import launch_accessible_chrome, act, inspect_desktop
+launch_accessible_chrome("about:blank")
+act("type", name="Address and search bar", role="entry",
+    text="https://www2.bing.com/search?q=test", clear=True, press_enter=True)
+```
+
+在 AT-SPI 总线起来之前启动、或没加 `--force-renderer-accessibility` 的 Chrome，树里仍然看不到。向已在运行的配置再启动一次通常只会新开标签并忽略新参数，所以不要指望「再开一次同一个 profile」就能补上无障碍。
+
+---
 ## 架构
 
 ```
@@ -198,6 +253,8 @@ linux_use/
   hybrid.py            默认 HYBRID 策略（按动作在 cache / locmap / AT-SPI·UIA·AX 之间选择）
   agent.py             观察 → 工具调用 → 再观察
   tools.py             click/type/scroll/move/shortcut/app/shell/file/wait/done
+  web.py               判断网页工具包输入框，避免对 Chrome/Firefox 走假成功的 set_text
+  chrome.py            启动独立的、可进入无障碍树的 Chrome（不碰已登录配置）
   llm.py               OpenAI 兼容 Chat Completions（密钥只来自环境变量）
   cli.py / server.py   命令行和 JSON-RPC
   mcp_server.py        MCP stdio（inspect / map / act / run / windows）
@@ -229,7 +286,7 @@ linux_use/
 - 本机验证环境是 **X11 + XFCE/xfwm4**。Wayland 需要另接 `ydotool`/`wtype`，目前未做。
 - Windows / macOS 后端不要当作已经交付的功能：代码是完整路径（不是空 stubs），只在 Linux 上用 mock 测过。
 - 没有导出无障碍树的程序（部分 Electron、游戏、纯自绘界面）只能靠坐标，效果会差。
-- 在 AT-SPI 启动之前就已经打开的应用，可能不会出现在树上，需要重启该应用。
+- 在 AT-SPI 启动之前就已经打开的应用，可能不会出现在树上。**不要为了看见树去重启用户已经登录的 Chrome**；另开一只带无障碍标志的实例（见下方「Chrome / 网页」）。
 - `shell` / `file` 有基本限制（危险命令拒绝；文件默认只允许家目录、`/tmp`、当前目录，以及可选的 `LINUX_USE_FILE_ROOTS`）。这不是沙箱，请勿在不可信任务上放开。
 - 不要对别人的桌面会话乱点。冒烟测试只操作临时 Mousepad 窗口。
 
@@ -246,6 +303,10 @@ linux_use/
 | `LINUX_USE_LOG_DIR` | 冒烟/截图日志目录，默认 `smoke-logs` |
 | `LINUX_USE_FILE_ROOTS` | 额外允许 `file` 工具访问的目录，用 `os.pathsep` 分隔 |
 | `LINUX_USE_POLICY` | 动作策略：`hybrid`（默认）/ `cache` / `locmap` / `original` |
+| `LINUX_USE_INCLUDE_WEB` | `1` 时默认 inspect 会深入网页 `document web` 子树（慢）；默认关闭 |
+| `LINUX_USE_WEB_WALK_BUDGET_MS` | 即使开启网页子树，单次扫描的时间上限（默认 400 ms，超时则截断） |
+| `LINUX_USE_CHROME_USER_DATA_DIR` | `launch-chrome` 使用的独立配置目录，默认 `/tmp/linux-use-chrome-a11y` |
+| `LINUX_USE_CHROME_NO_SANDBOX` | 默认 `1`（容器/云桌面常见需要）；普通桌面可设为 `0` |
 
 ---
 
@@ -262,3 +323,12 @@ MIT。仓库：https://github.com/mumu-2025/linux-use
 **Tested vs untested:** Linux (X11 + AT-SPI) is hardware-tested on this project’s reference box. Windows (UI Automation + SendInput) and macOS (AX + CGEvent) are real implementations with mock unit tests, but they have **not** been run on real Windows or Mac hardware — do not claim they work. Install optional extras with `pip install 'linux-use[windows]'` or `pip install 'linux-use[macos]'`.
 
 The tree is **cached and event-invalidated**. Integrations: CLI (`linux-use` / alias `desktop-use`), Python API, JSON-RPC (`linux-use serve`), and MCP stdio (`linux-use mcp`). See `docs/INTEGRATIONS.md`. This package is a separate implementation inspired by the Windows-Use architecture; it does not vendor or install that repository.
+
+**Chrome / web pages (behavior after 2026-11-26 measurements).** AT-SPI `set_text` on Chrome's omnibox often reports success but leaves the value unchanged. For Chrome/Firefox text fields the default HYBRID policy now types with the existing keyboard/xdotool path (click or `ctrl+l` first) instead of retrying `set_text`. Native GTK widgets such as Mousepad still use `set_text`. `inspect` skips `document web` subtrees by default so locating the address bar or a tab does not stall for 10+ seconds; pass `--include-web` / `inspect_desktop(include_web=True)` when you need page-internal nodes (a time budget still applies). Start a *separate* accessibility-enabled Chrome with `linux-use act app --action launch-chrome` or `launch_accessible_chrome()` — this uses `--force-renderer-accessibility` and its own `--user-data-dir`, and will not attach to or restart an already logged-in profile. Chrome started before the AT-SPI bus, or without that flag, still will not appear in the tree.
+
+
+**Why this repository exists.** The goal is faster, more reliable locate-and-operate on a Linux cloud desktop (or a local X11 session): find buttons, menus, text fields, and a browser address bar, then click or type, without rebuilding the whole UI tree on every step and without defaulting to a vision model. The design is inspired by Windows-Use’s accessibility-tree loop, but this is a separate implementation.
+
+**Requirements.** A HYBRID policy should pick among a cached tree, a classified coordinate map, and accessibility primitives so locate-and-act stays short. `inspect` / `act` / `smoke` / `bench` must work without an LLM key. As of 2026-11-26, measured on this project’s cloud desktop: Chrome/Firefox toolkit text fields (especially the omnibox) must not use AT-SPI `set_text` when it reports success but leaves the value unchanged — they should click or `ctrl+l` and type via the keyboard path, without 30–60s timeouts; default `inspect` must not descend `document web` subtrees (use `--include-web` with a time budget when page-internal nodes are needed); and `launch-accessible-chrome` must start a *separate* `--force-renderer-accessibility` profile after the AT-SPI bus is up, never attaching to or restarting an already logged-in browser. Linux (X11 + AT-SPI) is hardware-tested; do not claim Windows or macOS work until they are.
+
+**Application scenarios.** Scripted or agent-driven desktop control on a Linux cloud workstation; MCP / JSON-RPC integration with Cursor, Claude, or other agents; and policy benchmarks or regression smokes (temporary Mousepad; a separate accessible Chrome so an already signed-in session is left alone).

@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     p_ins.add_argument("--full", action="store_true", help="Force a full rescan")
     p_ins.add_argument("--out", type=Path, help="Write output to a file")
     p_ins.add_argument("--include-hidden", action="store_true")
+    p_ins.add_argument("--include-web", action="store_true",
+                       help="Also walk webpage document-web subtrees (slow; default skips them)")
 
     p_map = sub.add_parser("map", help="Dump the classified element location map (name/role/region -> coordinates).")
     p_map.add_argument("--json", action="store_true")
@@ -66,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     p_act.add_argument("--dest")
     p_act.add_argument("--content")
     p_act.add_argument("--force", action="store_true")
+    p_act.add_argument("--include-web", action="store_true")
     p_act.add_argument("--seconds", type=float, default=0.4)
 
     p_sm = sub.add_parser("smoke", help="Controlled smoke test with latency numbers.")
@@ -114,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def cmd_inspect(args) -> int:
     from .api import inspect_desktop
-    snap = inspect_desktop(force=bool(args.full))
+    snap = inspect_desktop(force=bool(args.full), include_web=bool(getattr(args, 'include_web', False)))
     if args.json:
         text = json.dumps(snap.to_dict(), ensure_ascii=False, indent=2)
     else:
@@ -180,7 +183,7 @@ def cmd_act(args) -> int:
         "action": "action", "command": "command", "title": "title",
         "width": "width", "height": "height",
         "path": "path", "dest": "dest", "content": "content",
-        "force": "force", "seconds": "seconds",
+        "force": "force", "seconds": "seconds", "include_web": "include_web",
     }
     for attr, key in mapping.items():
         if not hasattr(args, attr):
